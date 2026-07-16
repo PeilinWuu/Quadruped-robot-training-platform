@@ -6,6 +6,7 @@ const dbPath = resolve(process.env.AUTH_DB_PATH ?? 'data/auth.sqlite')
 mkdirSync(dirname(dbPath), { recursive: true })
 
 export const db = new DatabaseSync(dbPath)
+// WAL 允许读写更好地并发；外键保证删除用户时关联会话一并清理。
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
@@ -29,5 +30,6 @@ db.exec(`
 `)
 
 export interface DbUser {
+  // 此类型对应数据库字段；返回前端前会转换为不含 password_hash 的公开用户对象。
   id: number; username: string; email: string; display_name: string; password_hash: string; role: string; created_at: string
 }

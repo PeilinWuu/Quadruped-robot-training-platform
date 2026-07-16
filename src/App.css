@@ -89,7 +89,7 @@
 @media(max-width:1500px){.dashboard{grid-template-columns:235px minmax(590px,1fr) 340px}.brand{width:360px}.brand strong{font-size:14px}.topbar nav button{min-width:78px;padding:0 7px;font-size:11px}.right-column>.panel:nth-child(1){height:330px}.sensor-grid{height:244px}.sim-actions button{padding:0 6px}.statusbar{gap:14px}.lower-row{grid-template-columns:285px 1fr}}
 @media(max-width:1250px){.dashboard{grid-template-columns:225px 620px 330px}.brand{width:310px}.brand small{display:none}.topbar nav button{min-width:70px;font-size:0}.topbar nav button svg{width:18px;height:18px}.user{width:100px}.dashboard{overflow:visible}.statusbar{width:1180px}.path{display:none!important}}
 
-/* Authentication */
+/* 用户认证页面：与监控台保持一致的工业深色视觉 */
 .auth-loading { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; color:#6e91a6; background:#050e16; letter-spacing:1px; font-size:12px; }
 .auth-page { min-width:1000px; min-height:100vh; display:grid; grid-template-columns:minmax(560px,1.4fr) minmax(440px,.8fr); background:#050e16; }
 .auth-visual { position:relative; overflow:hidden; min-height:720px; border-right:1px solid #183d53; background:radial-gradient(circle at 72% 44%,#173242 0,#091923 35%,#050e16 68%); }

@@ -20,6 +20,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const notify = useCallback((text: string) => void messageApi.info(text), [messageApi])
   useEffect(() => { void initialize().catch((error: unknown) => messageApi.error(error instanceof Error ? error.message : '数据初始化失败')) }, [initialize, messageApi])
   useEffect(() => {
+    // Mock 模式下驱动计时器和动态图表；组件卸载时必须同时清理定时器与事件监听。
     const clock = window.setInterval(tick, 1000); const metrics = window.setInterval(appendMetrics, 2500)
     const reserved = (event: Event) => notify(`${(event as CustomEvent<string>).detail}接口已预留，等待后端接入`)
     window.addEventListener('reserved-action', reserved)
@@ -30,6 +31,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
 
 function AuthenticatedApp() {
   const [user, setUser] = useState<AuthUser | null>(null); const [checking, setChecking] = useState(true); const [messageApi, holder] = message.useMessage()
+  // 首次加载先向服务端恢复会话，校验完成前不渲染受保护的监控界面。
   useEffect(() => { authService.me().then(({ user: current }) => setUser(current)).catch(() => setUser(null)).finally(() => setChecking(false)) }, [])
   const logout = async () => { try { await authService.logout(); setUser(null); messageApi.success('已安全退出登录') } catch (error) { messageApi.error(error instanceof Error ? error.message : '退出失败') } }
   if (checking) return <div className="auth-loading">{holder}<Spin size="large"/><span>正在验证安全会话…</span></div>

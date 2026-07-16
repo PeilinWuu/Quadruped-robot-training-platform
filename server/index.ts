@@ -7,8 +7,10 @@ const app = express()
 const port = Number(process.env.API_PORT ?? 3001)
 const sessionDays = 7
 const cookieName = 'fire_rescue_session'
+// 当前限流器适用于单实例原型；多实例部署时应替换为 Redis 等共享存储。
 const attempts = new Map<string, { count: number; resetAt: number }>()
 
+// 减少框架信息暴露，并限制认证接口可接收的 JSON 大小。
 app.disable('x-powered-by')
 app.use(express.json({ limit: '16kb' }))
 app.use(cookieParser())
@@ -20,10 +22,12 @@ app.use((_req, res, next) => {
 })
 
 const clean = (value: unknown) => typeof value === 'string' ? value.trim() : ''
+// 永远不要把 password_hash 等数据库内部字段返回给浏览器。
 const publicUser = (user: DbUser) => ({ id: user.id, username: user.username, email: user.email, displayName: user.display_name, role: user.role, createdAt: user.created_at })
 const setSession = (res: Response, userId: number) => {
   const token = createSessionToken()
   const expires = new Date(Date.now() + sessionDays * 86400000)
+  // 服务端保存令牌摘要，原始令牌仅通过 HttpOnly Cookie 交给浏览器。
   db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(hashToken(token), userId, expires.toISOString())
   res.cookie(cookieName, token, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', path: '/', expires })
 }
@@ -35,6 +39,7 @@ const clearSession = (req: Request, res: Response) => {
 const currentUser = (req: Request): DbUser | undefined => {
   const token = req.cookies[cookieName] as string | undefined
   if (!token) return undefined
+  // 每次恢复登录态都在服务端同时验证令牌摘要和过期时间。
   return db.prepare(`SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`).get(hashToken(token), new Date().toISOString()) as DbUser | undefined
 }
 const rateLimit = (req: Request, res: Response, next: NextFunction) => {
@@ -47,6 +52,7 @@ const rateLimit = (req: Request, res: Response, next: NextFunction) => {
 app.get('/api/auth/me', (req, res) => { const user = currentUser(req); res.status(user ? 200 : 401).json(user ? { user: publicUser(user) } : { message: '未登录' }) })
 app.post('/api/auth/register', rateLimit, async (req, res, next) => {
   try {
+    // 不能只依赖前端表单规则，所有注册数据必须在服务端重新校验。
     const username = clean(req.body.username); const email = clean(req.body.email).toLowerCase(); const displayName = clean(req.body.displayName); const password = typeof req.body.password === 'string' ? req.body.password : ''
     if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) { res.status(400).json({ message: '用户名需为 3–24 位字母、数字或下划线' }); return }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) { res.status(400).json({ message: '请输入有效的邮箱地址' }); return }
@@ -65,6 +71,7 @@ app.post('/api/auth/login', rateLimit, async (req, res, next) => {
     const account = clean(req.body.account); const password = typeof req.body.password === 'string' ? req.body.password : ''
     const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(account, account) as DbUser | undefined
     if (!user || !(await verifyPassword(password, user.password_hash))) { res.status(401).json({ message: '账号或密码错误' }); return }
+    // 登录成功时顺便清理过期会话，避免会话表无限增长。
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString())
     setSession(res, user.id); res.json({ user: publicUser(user) })
   } catch (error) { next(error) }
