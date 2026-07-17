@@ -1,0 +1,538 @@
+/*
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.  All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef _GAUSSIAN_SPLATTING_H_
+#define _GAUSSIAN_SPLATTING_H_
+
+#include <iostream>
+#include <string>
+#include <array>
+#include <chrono>
+#include <filesystem>
+#include <span>
+// Important: include Igmlui before Vulkan
+// Or undef "Status" before including imgui
+#include <imgui/imgui.h>
+//
+#include <vulkan/vulkan_core.h>
+// mathematics
+#include <glm/vec3.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/transform.hpp>
+// threading
+#include <thread>
+#include <condition_variable>
+#include <mutex>
+// GPU radix sort
+#include <vk_radix_sort.h>
+//
+#include <nvutils/logger.hpp>
+#include <nvutils/file_operations.hpp>
+#include <nvutils/alignment.hpp>
+
+#include <nvvk/context.hpp>
+#include <nvvk/debug_util.hpp>
+#include <nvvk/pipeline.hpp>
+#include <nvvk/physical_device.hpp>
+#include <nvvk/helpers.hpp>
+#include <nvvk/gbuffers.hpp>
+#include <nvvk/resources.hpp>
+#include <nvvk/resource_allocator.hpp>
+#include <nvvk/staging.hpp>
+#include <nvvk/validation_settings.hpp>
+#include <nvvk/sampler_pool.hpp>
+#include <nvvk/default_structs.hpp>
+#include <nvvk/profiler_vk.hpp>
+#include <nvvk/acceleration_structures.hpp>
+#include <nvvk/descriptors.hpp>
+#include <nvvk/sbt_generator.hpp>
+
+#include <nvvkglsl/glsl.hpp>
+#include <nvslang/slang.hpp>
+
+#include <nvapp/application.hpp>
+#include <nvapp/elem_camera.hpp>
+#include <nvapp/elem_profiler.hpp>
+#include <nvapp/elem_sequencer.hpp>
+#include <nvapp/elem_default_title.hpp>
+#include <nvapp/elem_default_menu.hpp>
+//
+#include <nvgui/axis.hpp>
+#include <nvgui/enum_registry.hpp>
+#include <nvgui/property_editor.hpp>
+#include <nvgui/file_dialog.hpp>
+//
+#include <nvgpu_monitor/elem_gpu_monitor.hpp>
+
+// Shared between host and device
+#include "shaderio.h"
+
+#include "parameters.h"
+#include "utilities.h"
+#include "splat_set.h"
+#include "splat_set_vk.h"
+#include "ply_loader_async.h"
+#include "splat_sorter_async.h"
+#include "mesh_set_vk.h"
+#include "light_set_vk.h"
+#include "camera_set.h"
+
+namespace vk_gaussian_splatting {
+
+enum class ExportPreviewNotify
+{
+  None,
+  Depth,
+  Seg,
+  MultiView
+};
+
+class GaussianSplatting
+{
+public:
+  // Benchmarking, print extended info
+  // invoked by parameter sequencer
+  void benchmarkAdvance();
+
+public:
+  // Camera manipulator
+  // public so that it can be accessed by main
+  std::shared_ptr<nvutils::CameraManipulator> cameraManip{};
+
+protected:
+  GaussianSplatting(nvutils::ProfilerManager* profilerManager, nvutils::ParameterRegistry* parameterRegistry);
+
+  ~GaussianSplatting();
+
+  void onAttach(nvapp::Application* app);
+
+  void onDetach();
+
+  void onResize(VkCommandBuffer cmd, const VkExtent2D& size);
+
+  void onPreRender();
+
+  // reset frame counter for temporal accumulated multi-sampling
+  // will cause a restart of the frame construction
+  inline void resetFrameCounter() { prmFrame.frameSampleId = -1; }
+
+  void onRender(VkCommandBuffer cmd);
+
+  // reset the rendering settings that can
+  // be modified by the user interface
+  inline void resetRenderSettings()
+  {
+    resetFrameParameters();
+    resetRenderParameters();
+    resetRasterParameters();
+    resetRtxParameters();
+  }
+
+  // one-shot request to export current depth as PNG.
+  void requestDepthPngExport(const std::filesystem::path& filename);
+
+  // one-shot request to export current segmentation map as PNG.
+  void requestSegPngExport(const std::filesystem::path& filename);
+
+  // Batch export rgb/depth/seg/camera.json for all stored camera presets (index 1..N-1).
+  void requestMultiViewExport(const std::filesystem::path& sessionDir);
+
+  bool isMultiViewExportActive() const { return m_multiViewExport.active; }
+
+  std::string multiViewExportStatus() const;
+
+  ExportPreviewNotify consumeExportPreviewNotify();
+
+  const std::filesystem::path& lastMultiViewSessionDir() const { return m_lastMultiViewSessionDir; }
+
+  // Initializes all that is related to the scene based
+  // on current parameters. VRAM Data, shaders, pipelines.
+  // Invoked on scene load success.
+  bool initAll();
+
+  // Denitializes all that is related to the scene.
+  // VRAM Data, shaders, pipelines.
+  // Invoked on scene close or on exit.
+  void deinitAll();
+
+  // free scene (splat set) from RAM
+  void deinitScene();
+
+private:
+  // init the raster pipelines
+  void initPipelines();
+
+  // deinit raster and rtx pipelines TODO move rtx in separate method
+  void deinitPipelines();
+
+  void initRendererBuffers();
+
+  void deinitRendererBuffers();
+
+  void updateSlangMacros(void);
+
+  bool compileSlangShader(const std::string& filename, VkShaderModule& module);
+
+  bool initShaders(void);
+
+  void deinitShaders(void);
+
+  /////////////
+  // Rendering submethods
+
+  // process eventual update requests comming from UI or benchmark
+  // that requires to be performed before a new rendering after a DeviceWaitIdle
+  void processUpdateRequests(void);
+
+  // Updates frame information uniform buffer and frame camera info
+  void updateAndUploadFrameInfoUBO(VkCommandBuffer cmd, const uint32_t splatCount);
+
+  void tryConsumeAndUploadCpuSortingResult(VkCommandBuffer cmd, const uint32_t splatCount);
+
+  void processSortingOnGPU(VkCommandBuffer cmd, const uint32_t splatCount);
+
+  void drawSplatPrimitives(VkCommandBuffer cmd, const uint32_t splatCount);
+
+  void drawMeshPrimitives(VkCommandBuffer cmd);
+
+  // for statistics display in the UI
+  // copy form m_indirectReadbackHost updated at previous frame to m_indirectReadback
+  void collectReadBackValuesIfNeeded(void);
+  // for statistics display in the UI
+  // read back updated indirect parameters from m_indirect into m_indirectReadbackHost
+  void readBackIndirectParametersIfNeeded(VkCommandBuffer cmd);
+
+  // collect depth readback result from previous frame and write PNG
+  void collectDepthReadBackIfNeeded();
+
+  // issue depth image -> host buffer copy when requested
+  void readBackDepthIfRequested(VkCommandBuffer cmd);
+
+  void collectSegReadBackIfNeeded();
+  void readBackSegIfRequested(VkCommandBuffer cmd);
+  void clearSegBuffer(VkCommandBuffer cmd);
+
+  void requestRgbPngExport(const std::filesystem::path& filename);
+  void collectRgbReadBackIfNeeded();
+  void readBackRgbIfRequested(VkCommandBuffer cmd);
+
+  void tickMultiViewExport();
+  void onMultiViewCollectFinished();
+  void beginMultiViewCapture();
+  void scheduleMultiViewCapture();
+  void finishMultiViewView();
+  void finishMultiViewExport();
+  void writeMultiViewCameraJson(const std::filesystem::path& path) const;
+  void writeMultiViewManifest() const;
+
+  void updateRenderingMemoryStatistics(VkCommandBuffer cmd, const uint32_t splatCount);
+
+  //////////////
+  // RTX specific
+
+  // updates the frame counter and returns true if a new raytracing pass is needed
+  bool updateFrameCounter();
+
+  void initRtDescriptorSet();
+  void updateRtDescriptorSet();
+  void initRtPipeline();
+  void raytrace(const VkCommandBuffer& cmdBuf, bool meshDepthOnly = false);
+
+  //////////////
+  // Post processing
+
+  void initDescriptorSetPostProcessing();
+  void updateDescriptorSetPostProcessing();
+  void initPipelinePostProcessing();
+  void postProcess(VkCommandBuffer cmd);
+
+protected:
+  // name of the loaded scene if load is successfull
+  std::filesystem::path m_loadedSceneFilename;
+
+  // scene loader
+  PlyLoaderAsync m_plyLoader;
+  // 3DGS/3DGRT model in RAM
+  SplatSet m_splatSet = {};
+  // 3DGS/3DGRT model in VRAM
+  SplatSetVk m_splatSetVk = {};
+  // Set of meshes in VRAM
+  MeshSetVk m_meshSetVk = {};
+  // Set of lights in RAM and VRAM
+  LightSetVk m_lightSet = {};
+  // Set of cameras in RAM
+  CameraSet m_cameraSet = {};
+
+  // Index of the item selected in a root node of scene graph or -1 if none
+  int64_t m_selectedItemIndex = -1;
+  // Index of the last camera loaded
+  uint64_t m_lastLoadedCamera = 0;
+
+  // Push constant for rasterizer
+  shaderio::PushConstant m_pcRaster{};
+
+  // counting benchmark steps
+  int m_benchmarkId = 0;
+
+  // trigger a rebuild of the data in VRAM (textures or buffers) at next frame
+  // also triggers shaders and pipeline rebuild
+  bool m_requestUpdateSplatData = false;
+  // trigger a rebuild of the splat set RTX Acceleration Structure at next frame
+  bool m_requestUpdateSplatAs = false;
+  // request delayed update of Acceleration Structures if not using ray tracing
+  bool m_requestDelayedUpdateSplatAs = false;
+  // trigger a rebuild of the shaders and pipelines at next frame
+  bool m_requestUpdateShaders = false;
+  // trigger the reinit of mesh acceleration structures at next frame
+  bool m_requestUpdateMeshData = false;
+  // trigger the update of light buffer at next frame
+  bool m_requestUpdateLightsBuffer = false;
+  // trigger the deletion of the selected mesh object
+  bool m_requestDeleteSelectedMesh = false;
+
+  nvapp::Application*         m_app{nullptr};
+  nvutils::ProfilerManager*   m_profilerManager;
+  nvutils::ParameterRegistry* m_parameterRegistry;
+  nvvk::StagingUploader       m_uploader{};     // utility to upload buffers to device
+  nvvk::SamplerPool           m_samplerPool{};  // The sampler pool, used to create texture samplers
+  VkSampler                   m_sampler{};      // texture sampler (nearest)
+  nvvk::ResourceAllocator     m_alloc;
+  nvvk::PhysicalDeviceInfo    m_physicalDeviceInfo;
+
+  nvutils::ProfilerTimeline* m_profilerTimeline{};
+  nvvk::ProfilerGpuTimer     m_profilerGpuTimer;
+
+  glm::vec2         m_viewSize    = {0, 0};
+  VkFormat          m_colorFormat = VK_FORMAT_R8G8B8A8_UNORM;    // Color format of the image
+  VkFormat          m_depthFormat = VK_FORMAT_UNDEFINED;         // Depth format of the depth buffer
+  VkClearColorValue m_clearColor  = {{0.0F, 0.0F, 0.0F, 0.0F}};  // Clear color
+  VkDevice          m_device      = VK_NULL_HANDLE;              // Convenient sortcut to device
+
+  // Convenient enum to dereference color buffers in GBuffers
+  enum
+  {
+    COLOR_MAIN = 0,
+    COLOR_AUX1 = 1,
+    COLOR_SEG  = 2,
+  };
+  // G-Buffers: 3 color buffers (seg is R32_UINT) + 1 depth buffer
+  nvvk::GBuffer m_gBuffers;
+
+  // camera info for current frame, updated by onRender
+  glm::vec3 m_eye{};
+  glm::vec3 m_center{};
+  glm::vec3 m_up{};
+
+  // IndirectParams structure defined in shaderio.h
+  nvvk::Buffer             m_indirect;              // indirect parameter buffer
+  nvvk::Buffer             m_indirectReadbackHost;  // buffer for readback
+  shaderio::IndirectParams m_indirectReadback;      // readback values
+  bool m_canCollectReadback = false;  // tells wether readback will be available in Host buffer at next frame
+
+  // one-shot depth export state
+  bool                  m_requestDepthExportPng = false;
+  int                   m_depthExportDelayFrames = 0;
+  bool                  m_canCollectDepthReadback = false;
+  std::filesystem::path m_depthExportFilename;
+  nvvk::Buffer          m_depthReadbackHost;
+  VkExtent2D            m_depthReadbackExtent{};
+
+  bool                  m_requestSegExportPng = false;
+  int                   m_segExportDelayFrames = 0;
+  bool                  m_canCollectSegReadback = false;
+  std::filesystem::path m_segExportFilename;
+  nvvk::Buffer          m_segReadbackHost;
+  VkExtent2D            m_segReadbackExtent{};
+
+  bool                  m_requestRgbExportPng = false;
+  int                   m_rgbExportDelayFrames = 0;
+  bool                  m_canCollectRgbReadback = false;
+  std::filesystem::path m_rgbExportFilename;
+  nvvk::Buffer          m_rgbReadbackHost;
+  VkExtent2D            m_rgbReadbackExtent{};
+
+  enum class MultiViewPhase
+  {
+    Idle,
+    WaitSettle,
+    WaitCapture,
+  };
+
+  struct MultiViewExportState
+  {
+    bool                  active = false;
+    MultiViewPhase        phase  = MultiViewPhase::Idle;
+    std::filesystem::path sessionDir;
+    std::vector<uint64_t> presetIndices;
+    size_t                viewIdx = 0;
+    int                   settleFrames = 0;
+    int                   pendingCollects = 0;
+    uint64_t              currentPreset = 0;
+    Camera                currentCamera{};
+    std::filesystem::path currentViewDir;
+    bool                  savedTemporalSampling = false;
+    std::string           sessionTimestamp;
+    nlohmann::json        manifestViews = nlohmann::json::array();
+  };
+
+  MultiViewExportState m_multiViewExport{};
+
+  ExportPreviewNotify   m_exportPreviewNotify = ExportPreviewNotify::None;
+  std::filesystem::path m_lastMultiViewSessionDir;
+
+  // TODO maybe move that in SplatSetVK next to icosa, and the associated init/deinit
+  nvvk::Buffer m_quadVertices;  // Buffer of vertices for the splat quad
+  nvvk::Buffer m_quadIndices;   // Buffer of indices for the splat quad
+
+
+  SplatSorterAsync      m_cpuSorter;                   // CPU async sorting
+  std::vector<uint32_t> m_splatIndices;                // the array of cpu sorted indices to use for rendering
+  VrdxSorter            m_gpuSorter = VK_NULL_HANDLE;  // GPU radix sort
+
+  // buffers used by GPU and/or CPU sort
+  nvvk::Buffer m_splatIndicesHost;      // Buffer of splat indices on host for transfers (used by CPU sort)
+  nvvk::Buffer m_splatIndicesDevice;    // Buffer of splat indices on device (used by CPU and GPU sort)
+  nvvk::Buffer m_splatDistancesDevice;  // Buffer of splat indices on device (used by CPU and GPU sort)
+  nvvk::Buffer m_vrdxStorageDevice;     // Used internally by VrdxSorter, GPU sort
+
+  // macro definitions shared by all shaders
+  std::vector<std::pair<std::string, std::string>> m_shaderMacros;
+  // used to load and compile shaders
+  nvslang::SlangCompiler m_slangCompiler{};
+
+  // The different shaders that are used in the pipelines
+  struct Shaders
+  {
+    // 3D Gaussians Raster
+    VkShaderModule distShader{};
+    VkShaderModule meshShader{};
+    VkShaderModule vertexShader{};
+    VkShaderModule fragmentShader{};
+    VkShaderModule threedgutMeshShader{};
+    VkShaderModule threedgutFragmentShader{};
+    // 3D Meshes raster
+    VkShaderModule meshVertexShader{};
+    VkShaderModule meshFragmentShader{};
+    // for RTX
+    VkShaderModule rtxRgenShader{};    // The ray generator
+    VkShaderModule rtxRmissShader{};   // The miss shader
+    VkShaderModule rtxRmiss2Shader{};  // For shadows (no support yet)
+    VkShaderModule rtxRchitShader{};   // Closest Hit
+    VkShaderModule rtxRahitShader{};   // Any Hit
+    VkShaderModule rtxRintShader{};    // Interrsection
+    // Post processings
+    VkShaderModule postComputeShader{};
+    // Utility storage to process shaders in loop
+    std::vector<VkShaderModule*> modules{};
+    // true if all the shaders are succesfully build
+    bool valid = false;
+  } m_shaders;
+
+  // 3D Gaussians Pipelines
+  VkPipeline m_computePipelineGsDistCull = VK_NULL_HANDLE;  // The compute pipeline to compute gaussian splats distances to eye and cull
+  VkPipeline m_graphicsPipelineGsVert = VK_NULL_HANDLE;  // The graphic pipeline to rasterize gaussian splats using vertex shaders
+  VkPipeline m_graphicsPipelineGsMesh = VK_NULL_HANDLE;  // The graphic pipeline to rasterize gaussian splats using mesh shaders
+  VkPipeline m_graphicsPipeline3dgutMesh = VK_NULL_HANDLE;  // The graphic pipeline to rasterize 3DGUT splats using mesh shaders
+  // 3D Meshes Pipelines
+  VkPipeline m_graphicsPipelineMesh = VK_NULL_HANDLE;  // The graphic pipeline to rasterize meshes
+
+  // Common to 3D meshes and 3D Gaussians pipeline
+  VkPipelineLayout      m_pipelineLayout      = VK_NULL_HANDLE;  // Raster Pipelines layout
+  VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;  // Descriptor set layout
+  VkDescriptorSet       m_descriptorSet       = VK_NULL_HANDLE;  // Raster Descriptor set
+  VkDescriptorPool      m_descriptorPool      = VK_NULL_HANDLE;  // Raster Descriptor pool
+
+  nvvk::Buffer m_frameInfoBuffer;  // uniform buffer to store frame parameters defined by global variable prmFrame
+
+  // Rendering (sorting and splatting) related memory usage statistics
+  struct RenderMemoryStats
+  {
+    // Rasterization
+
+    uint64_t usedUboFrameInfo = 0;  // used = alloc all the time
+    uint64_t usedIndirect     = 0;  // used = alloc all the time, for the active pipeline
+
+    uint64_t hostAllocDistances = 0;  // used = alloc
+    uint64_t hostAllocIndices   = 0;  // used = alloc
+
+    uint64_t allocIndices      = 0;
+    uint64_t usedIndices       = 0;
+    uint64_t allocDistances    = 0;
+    uint64_t usedDistances     = 0;
+    uint64_t allocVdrxInternal = 0;  // used is unknown
+
+    uint64_t rasterHostTotal        = 0;
+    uint64_t rasterDeviceUsedTotal  = 0;
+    uint64_t rasterDeviceAllocTotal = 0;
+
+    // RTX
+    uint64_t rtxUsedTlas = 0;
+    uint64_t rtxUsedBlas = 0;
+
+    uint64_t rtxHostTotal        = 0;
+    uint64_t rtxDeviceUsedTotal  = 0;
+    uint64_t rtxDeviceAllocTotal = 0;
+
+    // Totals
+    uint64_t hostTotal        = 0;
+    uint64_t deviceUsedTotal  = 0;
+    uint64_t deviceAllocTotal = 0;
+
+  } m_renderMemoryStats;
+
+  /////////////////////////
+  // RTX specific
+
+  VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+  VkPhysicalDeviceAccelerationStructurePropertiesKHR m_accelStructProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+
+  std::vector<VkRayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
+  VkPipelineLayout                                  m_rtPipelineLayout = VK_NULL_HANDLE;
+  VkPipeline m_rtPipeline = VK_NULL_HANDLE;  // The RTX pipeline to ray trace gaussian splats and meshes
+
+  nvvk::DescriptorBindings m_rtDescriptorBindings  = {};
+  VkDescriptorSetLayout    m_rtDescriptorSetLayout = VK_NULL_HANDLE;
+  VkDescriptorSet          m_rtDescriptorSet       = VK_NULL_HANDLE;
+  VkDescriptorPool         m_rtDescriptorPool      = VK_NULL_HANDLE;
+
+  nvvk::Buffer m_payloadDevice;
+
+  nvvk::Buffer m_rtSBTBuffer;  // common to GS and Mesh
+  // The 4 SBT regions (raygen, miss, chit, call in this order)
+  nvvk::SBTGenerator::Regions m_sbtRegions{};  // common to GS and Mesh
+
+  shaderio::PushConstantRay m_pcRay{};  // Push constant for ray tracer
+
+  ///////////////////////////////
+  // Post processing
+
+  VkPipeline       m_computePipelinePostProcess = VK_NULL_HANDLE;
+  VkPipelineLayout m_pipelineLayoutPostProcess  = VK_NULL_HANDLE;
+
+  nvvk::DescriptorBindings m_descriptorBindingsPostProcess{};
+  VkDescriptorSetLayout    m_descriptorSetLayoutPostProcess = VK_NULL_HANDLE;
+  VkDescriptorSet          m_descriptorSetPostProcess       = VK_NULL_HANDLE;
+  VkDescriptorPool         m_descriptorPoolPostProcess      = VK_NULL_HANDLE;
+};
+
+}  // namespace vk_gaussian_splatting
+
+#endif

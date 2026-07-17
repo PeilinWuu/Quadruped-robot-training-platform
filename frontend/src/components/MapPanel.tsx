@@ -1,0 +1,4 @@
+import { Bot, Crosshair, Flame, TriangleAlert } from 'lucide-react'
+import { Panel } from './Panel'
+
+export function MapPanel() { return <Panel title="2D 环境地图" extra={<select aria-label="地图类型"><option>2D 栅格地图</option><option>语义地图</option></select>}><div className="map-wrap"><div className="floor-map"><span className="room r1"/><span className="room r2"/><span className="room r3"/><span className="room r4"/><span className="path-map"/><span className="map-bot"><Bot size={14} /></span><span className="map-target"><Crosshair size={13} /></span><span className="map-fire"><Flame size={14} /></span></div><ul className="map-legend"><li><Bot size={12}/>机器人</li><li><Crosshair size={12}/>目标点</li><li><span className="legend explored"/>已探索</li><li><span className="legend unknown"/>未探索</li><li><Flame size={12}/>火源区域</li><li><TriangleAlert size={12}/>危险区域</li></ul></div></Panel> }

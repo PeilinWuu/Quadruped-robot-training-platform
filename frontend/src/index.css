@@ -1,0 +1,9 @@
+:root { font-family: Inter, "Microsoft YaHei", system-ui, sans-serif; color: #b9cad6; background: #050e16; font-synthesis: none; text-rendering: optimizeLegibility; }
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-width: 1180px; min-height: 100%; }
+body { background: #050e16; overflow: auto; }
+button, select { font: inherit; }
+button { color: inherit; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: #07131d; }
+::-webkit-scrollbar-thumb { background: #21465c; }
