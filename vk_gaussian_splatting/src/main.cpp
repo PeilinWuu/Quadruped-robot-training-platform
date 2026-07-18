@@ -163,17 +163,7 @@ int main(int argc, char** argv)
   appInfo.useMenu               = !benchmarkMode;  // we hide the menu in benchmark mode
 
   // Setting up the layout of the application
-  appInfo.dockSetup = [](ImGuiID viewportID) {
-    // right side panel container
-    ImGuiID assetsID = ImGui::DockBuilderSplitNode(viewportID, ImGuiDir_Right, 0.20F, nullptr, &viewportID);
-    ImGui::DockBuilderDockWindow("Assets", assetsID);
-    ImGuiID propertiesID = ImGui::DockBuilderSplitNode(assetsID, ImGuiDir_Down, 0.75F, nullptr, &assetsID);
-    ImGui::DockBuilderDockWindow("Properties", propertiesID);
-
-    // bottom panel: Export Preview only (Debug panels docked at runtime via redockBottomPanels)
-    ImGuiID previewID = ImGui::DockBuilderSplitNode(viewportID, ImGuiDir_Down, 0.30F, nullptr, &viewportID);
-    ImGui::DockBuilderDockWindow("Export Preview", previewID);
-  };
+  appInfo.dockSetup = [](ImGuiID viewportID) { buildMonitoringDockLayout(viewportID); };
 
   //
   gaussianSplatting->guiRegisterIniFileHandlers();

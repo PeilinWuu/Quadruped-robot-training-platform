@@ -95,6 +95,9 @@
 #include "camera_set.h"
 #include "gaussian_splatting.h"
 #include "export_preview.h"
+#include "application_state.h"
+#include "main_workspace.h"
+#include "mock_data_sources.h"
 
 // Json
 #include <tinygltf/json.hpp>
@@ -182,6 +185,11 @@ private:
   bool                                                  m_showRenderingStatistics = false;
   bool                                                  m_pendingBottomPanelDock = false;
   ExportPreviewPanel                                    m_exportPreview;
+  ApplicationState                                     m_applicationState;
+  MainWorkspace                                        m_mainWorkspace;
+  MockRobotDataSource                                  m_mockRobotDataSource;
+  MockSensorDataSource                                 m_mockSensorDataSource;
+  MockTrainingDataSource                               m_mockTrainingDataSource;
   std::shared_ptr<nvapp::ElementProfiler::ViewSettings> m_profilerViewSettings;
 
   // benchmark mode (enabled by command line), loadings will be synchronous and vsync off

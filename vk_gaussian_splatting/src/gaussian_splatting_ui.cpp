@@ -21,6 +21,7 @@
 
 #include "nvgui/fonts.hpp"
 #include "nvgui/tooltip.hpp"
+#include "nvgui/window.hpp"
 
 #include <glm/vec2.hpp>
 // clang-format off
@@ -40,6 +41,31 @@
 #include <imgui/imgui_internal.h>
 
 namespace vk_gaussian_splatting {
+
+namespace {
+
+const char* monitoringPipelineName(uint32_t pipeline)
+{
+  switch(pipeline)
+  {
+    case PIPELINE_VERT:
+      return "3DGS Vertex";
+    case PIPELINE_MESH:
+      return "3DGS Mesh";
+    case PIPELINE_RTX:
+      return "3DGRT";
+    case PIPELINE_HYBRID:
+      return "Hybrid 3DGS";
+    case PIPELINE_MESH_3DGUT:
+      return "3DGUT Mesh";
+    case PIPELINE_HYBRID_3DGUT:
+      return "Hybrid 3DGUT";
+    default:
+      return "Unknown";
+  }
+}
+
+}  // namespace
 
 GaussianSplattingUI::GaussianSplattingUI(nvutils::ProfilerManager*   profilerManager,
                                          nvutils::ParameterRegistry* parameterRegistry,
@@ -152,6 +178,13 @@ void GaussianSplattingUI::onAttach(nvapp::Application* app)
   m_ui.enumAdd(GUI_RAY_HIT_PER_PASS, 4, "4");
 
   m_exportPreview.init(m_app, &m_alloc, &m_uploader, m_sampler);
+  const auto monitoringNow = std::chrono::steady_clock::now();
+  m_mockRobotDataSource.reset(monitoringNow);
+  m_mockSensorDataSource.reset(monitoringNow);
+  m_mockTrainingDataSource.reset(monitoringNow);
+  m_mainWorkspace.init(&m_applicationState,
+                       {.requestControlMode = [this](ControlMode mode) { m_mockRobotDataSource.requestControlMode(mode); },
+                        .requestTrainingCommand = [this](TrainingCommand command) { m_mockTrainingDataSource.request(command); }});
   applyUiModeSettings();
   m_pendingBottomPanelDock = true;
 }
@@ -209,6 +242,7 @@ void GaussianSplattingUI::redockBottomPanels()
 
 void GaussianSplattingUI::onDetach()
 {
+  m_mainWorkspace.deinit();
   m_exportPreview.deinit();
   GaussianSplatting::onDetach();
 }
@@ -314,6 +348,14 @@ void GaussianSplattingUI::onUIMenu()
       applyUiModeSettings(true);
     }
     ImGui::MenuItem("Show Export Preview", "", &m_showExportPreview);
+    ImGui::Separator();
+    ImGui::MenuItem("Project Status", nullptr, &m_applicationState.ui.showProjectStatus);
+    ImGui::MenuItem("Scene & Environment", nullptr, &m_applicationState.ui.showSceneEnvironment);
+    ImGui::MenuItem("Robot & Sensors", nullptr, &m_applicationState.ui.showRobotSensors);
+    ImGui::MenuItem("Training Monitor", nullptr, &m_applicationState.ui.showTrainingMonitor);
+    ImGui::MenuItem("Monitoring Status Bar", nullptr, &m_applicationState.ui.showStatusBar);
+    if(ImGui::MenuItem("Reset Monitoring Layout"))
+      m_applicationState.ui.requestMonitoringLayoutReset = true;
     ImGui::EndMenu();
   }
 #ifndef NDEBUG
@@ -326,40 +368,46 @@ void GaussianSplattingUI::onUIMenu()
   }
 #endif  // !NDEBUG
 
-  // Shortcuts
-  if(ImGui::IsKeyPressed(ImGuiKey_Space))
+  // Global shortcuts are disabled while editing or interacting with monitoring
+  // widgets. Viewport keyboard controls remain available while it is hovered.
+  const ImGuiIO& io = ImGui::GetIO();
+  ImGuiWindow* viewportWindow = ImGui::FindWindowByName("Viewport");
+  const bool viewportHovered  = viewportWindow != nullptr && nvgui::isWindowHovered(viewportWindow);
+  const bool allowGlobalShortcut = !io.WantTextInput && !ImGui::IsAnyItemActive() && (!io.WantCaptureKeyboard || viewportHovered);
+
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_Space) && m_cameraSet.size() > 0)
   {
     m_lastLoadedCamera = (m_lastLoadedCamera + 1) % m_cameraSet.size();
     m_cameraSet.loadPreset(m_lastLoadedCamera, false);
     m_requestUpdateShaders = true;
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_Q) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_Q) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
   {
     close_app = true;
   }
 
-  if(ImGui::IsKeyPressed(ImGuiKey_V) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_V) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
   {
     v_sync = !v_sync;
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_D) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_D) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
   {
     requestDepthPngExport(makeDepthOutputFilename());
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
   {
     requestSegPngExport(makeSegOutputFilename());
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_M) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_M) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
   {
     requestMultiViewExport(makeMultiViewSessionDir());
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_F5))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_F5))
   {
     if(!m_recentFiles.empty())
       prmScene.sceneToLoadFilename = m_recentFiles[0];
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_F1))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_F1))
   {
     std::string statsFrame;
     std::string statsSingle;
@@ -368,17 +416,17 @@ void GaussianSplattingUI::onUIMenu()
     nvutils::Logger::getInstance().log(nvutils::Logger::eSTATS, "ParameterSequence %d \"%s\" = {\n%s\n%s}\n", 0,
                                        "F1 pressed ", statsFrame.c_str(), statsSingle.c_str());
   }
-  if(ImGui::IsKeyPressed(ImGuiKey_1))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_1))
     prmSelectedPipeline = PIPELINE_VERT;
-  if(ImGui::IsKeyPressed(ImGuiKey_2))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_2))
     prmSelectedPipeline = PIPELINE_MESH;
-  if(ImGui::IsKeyPressed(ImGuiKey_3))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_3))
     prmSelectedPipeline = PIPELINE_RTX;
-  if(ImGui::IsKeyPressed(ImGuiKey_4))  // TODO find why the shortcut does not work
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_4))  // TODO find why the shortcut does not work
     prmSelectedPipeline = PIPELINE_HYBRID;
 
   // hot rebuild of shaders only if scene exist
-  if(ImGui::IsKeyPressed(ImGuiKey_R))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_R))
   {
     if(!m_loadedSceneFilename.empty())
       m_requestUpdateShaders = true;
@@ -409,7 +457,7 @@ void GaussianSplattingUI::onUIMenu()
     m_app->setVsync(v_sync);
   }
 
-  if(ImGui::IsKeyPressed(ImGuiKey_P))
+  if(allowGlobalShortcut && ImGui::IsKeyPressed(ImGuiKey_P))
     dumpSplat(m_indirectReadback.particleID);
 }
 
@@ -434,6 +482,36 @@ void GaussianSplattingUI::onFileDrop(const std::filesystem::path& filename)
 
 void GaussianSplattingUI::onUIRender()
 {
+  const auto mockNow = std::chrono::steady_clock::now();
+  m_mockRobotDataSource.update(mockNow);
+  m_mockSensorDataSource.update(mockNow);
+  m_mockTrainingDataSource.update(mockNow);
+  m_applicationState.robot    = m_mockRobotDataSource.snapshot();
+  m_applicationState.sensors  = m_mockSensorDataSource.snapshot();
+  m_applicationState.training = m_mockTrainingDataSource.snapshot();
+
+  m_applicationState.render.sceneFilename = m_loadedSceneFilename;
+  m_applicationState.render.gaussianCount = static_cast<uint64_t>(m_splatSet.size());
+  m_applicationState.render.pipelineName  = monitoringPipelineName(prmSelectedPipeline);
+  const VkExtent2D monitoringViewportSize = m_gBuffers.getSize();
+  m_applicationState.render.viewportWidth  = monitoringViewportSize.width;
+  m_applicationState.render.viewportHeight = monitoringViewportSize.height;
+  m_applicationState.render.fps            = ImGui::GetIO().Framerate;
+
+  switch(m_plyLoader.getStatus())
+  {
+    case PlyLoaderAsync::State::E_LOADING:
+    case PlyLoaderAsync::State::E_LOADED:
+      m_applicationState.render.loadState = SceneLoadState::Loading;
+      break;
+    case PlyLoaderAsync::State::E_FAILURE:
+      m_applicationState.render.loadState = SceneLoadState::Failed;
+      break;
+    default:
+      m_applicationState.render.loadState = m_loadedSceneFilename.empty() ? SceneLoadState::Empty : SceneLoadState::Ready;
+      break;
+  }
+
   /////////////
   // Rendering Viewport display the GBuffer
   {
@@ -630,6 +708,8 @@ void GaussianSplattingUI::onUIRender()
 
   /////////////////
   // Draw the UI parts
+
+  m_mainWorkspace.draw();
 
   guiDrawAssetsWindow();
 
