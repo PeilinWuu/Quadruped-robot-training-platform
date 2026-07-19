@@ -7,3 +7,4 @@ _autogen/
 _benchmark*/
 _downloaded_resources/
 generated/
+/flowers_1.ply
