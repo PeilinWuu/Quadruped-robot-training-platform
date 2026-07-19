@@ -183,8 +183,13 @@ void GaussianSplattingUI::onAttach(nvapp::Application* app)
   m_mockSensorDataSource.reset(monitoringNow);
   m_mockTrainingDataSource.reset(monitoringNow);
   m_mainWorkspace.init(&m_applicationState,
-                       {.requestControlMode = [this](ControlMode mode) { m_mockRobotDataSource.requestControlMode(mode); },
-                        .requestTrainingCommand = [this](TrainingCommand command) { m_mockTrainingDataSource.request(command); }});
+                       {.requestControlMode = [this](ControlMode mode) {
+                          m_mockRobotDataSource.requestControlMode(mode);
+                          m_mainWorkspace.addLog(LogSeverity::Info, "Robot", std::string("Mock control mode requested: ") + toString(mode));
+                        },
+                        .requestTrainingCommand = [this](TrainingCommand command) { m_mockTrainingDataSource.request(command); },
+                        .resetMockTraining = [this]() { m_mockTrainingDataSource.reset(std::chrono::steady_clock::now()); }});
+  m_nextProfilerSample = monitoringNow;
   applyUiModeSettings();
   m_pendingBottomPanelDock = true;
 }
@@ -347,12 +352,18 @@ void GaussianSplattingUI::onUIMenu()
       m_uiMode = UiMode::Debug;
       applyUiModeSettings(true);
     }
-    ImGui::MenuItem("Show Export Preview", "", &m_showExportPreview);
+    ImGui::MenuItem("Assets", nullptr, &m_showAssets);
+    ImGui::MenuItem("Properties", nullptr, &m_showProperties);
+    ImGui::MenuItem("Export Preview", nullptr, &m_showExportPreview);
     ImGui::Separator();
     ImGui::MenuItem("Project Status", nullptr, &m_applicationState.ui.showProjectStatus);
     ImGui::MenuItem("Scene & Environment", nullptr, &m_applicationState.ui.showSceneEnvironment);
     ImGui::MenuItem("Robot & Sensors", nullptr, &m_applicationState.ui.showRobotSensors);
     ImGui::MenuItem("Training Monitor", nullptr, &m_applicationState.ui.showTrainingMonitor);
+    ImGui::MenuItem("Training Charts", nullptr, &m_applicationState.ui.showTrainingCharts);
+    ImGui::MenuItem("Performance Charts", nullptr, &m_applicationState.ui.showPerformanceCharts);
+    ImGui::MenuItem("Navigation Map", nullptr, &m_applicationState.ui.showNavigationMap);
+    ImGui::MenuItem("Event Log", nullptr, &m_applicationState.ui.showEventLog);
     ImGui::MenuItem("Monitoring Status Bar", nullptr, &m_applicationState.ui.showStatusBar);
     if(ImGui::MenuItem("Reset Monitoring Layout"))
       m_applicationState.ui.requestMonitoringLayoutReset = true;
@@ -482,6 +493,7 @@ void GaussianSplattingUI::onFileDrop(const std::filesystem::path& filename)
 
 void GaussianSplattingUI::onUIRender()
 {
+  const auto uiStart = std::chrono::steady_clock::now();
   const auto mockNow = std::chrono::steady_clock::now();
   m_mockRobotDataSource.update(mockNow);
   m_mockSensorDataSource.update(mockNow);
@@ -497,6 +509,31 @@ void GaussianSplattingUI::onUIRender()
   m_applicationState.render.viewportWidth  = monitoringViewportSize.width;
   m_applicationState.render.viewportHeight = monitoringViewportSize.height;
   m_applicationState.render.fps            = ImGui::GetIO().Framerate;
+  m_applicationState.render.cpuUiTimeMs    = m_lastUiTimeMs;
+  m_applicationState.render.cpuUiTimeValid = std::isfinite(m_lastUiTimeMs) && m_lastUiTimeMs >= 0.0F;
+
+  if(mockNow >= m_nextProfilerSample)
+  {
+    m_nextProfilerSample = mockNow + std::chrono::milliseconds(250);
+    std::vector<nvutils::ProfilerTimeline::Snapshot> frameSnapshots;
+    std::vector<nvutils::ProfilerTimeline::Snapshot> asyncSnapshots;
+    m_profilerManager->getSnapshots(frameSnapshots, asyncSnapshots);
+    m_applicationState.render.gpuFrameTimeValid = false;
+    for(const auto& snapshot : frameSnapshots)
+    {
+      for(std::size_t i = 0; i < snapshot.timerNames.size(); ++i)
+      {
+        if(snapshot.timerNames[i] == "Frame" && snapshot.timerInfos[i].numAveraged > 0 && snapshot.timerInfos[i].gpu.average > 0.0)
+        {
+          m_applicationState.render.gpuFrameTimeMs = static_cast<float>(snapshot.timerInfos[i].gpu.average / 1000.0);
+          m_applicationState.render.gpuFrameTimeValid = true;
+          break;
+        }
+      }
+      if(m_applicationState.render.gpuFrameTimeValid)
+        break;
+    }
+  }
 
   switch(m_plyLoader.getStatus())
   {
@@ -511,6 +548,20 @@ void GaussianSplattingUI::onUIRender()
       m_applicationState.render.loadState = m_loadedSceneFilename.empty() ? SceneLoadState::Empty : SceneLoadState::Ready;
       break;
   }
+
+  if(m_applicationState.render.loadState != m_lastLoggedSceneState)
+  {
+    const std::string name = m_applicationState.render.sceneFilename.empty() ? "scene" : m_applicationState.render.sceneFilename.filename().string();
+    if(m_applicationState.render.loadState == SceneLoadState::Loading)
+      m_mainWorkspace.addLog(LogSeverity::Info, "Scene", "Scene load requested: " + name);
+    else if(m_applicationState.render.loadState == SceneLoadState::Ready)
+      m_mainWorkspace.addLog(LogSeverity::Info, "Scene", "Scene loaded: " + name);
+    else if(m_applicationState.render.loadState == SceneLoadState::Failed)
+      m_mainWorkspace.addLog(LogSeverity::Error, "Scene", "Scene load failed: " + name);
+    m_lastLoggedSceneState = m_applicationState.render.loadState;
+  }
+
+  m_mainWorkspace.update(mockNow);
 
   /////////////
   // Rendering Viewport display the GBuffer
@@ -696,7 +747,10 @@ void GaussianSplattingUI::onUIRender()
   }
 
   if(!m_showUI)
+  {
+    m_lastUiTimeMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - uiStart).count();
     return;
+  }
 
   const ExportPreviewNotify notify = consumeExportPreviewNotify();
   if(notify != ExportPreviewNotify::None)
@@ -711,9 +765,11 @@ void GaussianSplattingUI::onUIRender()
 
   m_mainWorkspace.draw();
 
-  guiDrawAssetsWindow();
+  if(m_showAssets)
+    guiDrawAssetsWindow();
 
-  guiDrawPropertiesWindow();
+  if(m_showProperties)
+    guiDrawPropertiesWindow();
 
   m_exportPreview.draw(m_depthOutputDirectory, m_segOutputDirectory, m_multiViewOutputDirectory, isMultiViewExportActive(),
                        multiViewExportStatus(), &m_showExportPreview);
@@ -730,6 +786,7 @@ void GaussianSplattingUI::onUIRender()
     guiDrawMemoryStatisticsWindow(&m_showMemoryStatistics);
     guiDrawFooterBar();
   }
+  m_lastUiTimeMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - uiStart).count();
 }
 
 void GaussianSplattingUI::guiDrawAssetsWindow()

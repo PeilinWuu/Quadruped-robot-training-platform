@@ -181,6 +181,8 @@ private:
   bool                                                  m_showUI = true;
   UiMode                                                m_uiMode = UiMode::Work;
   bool                                                  m_showExportPreview = true;
+  bool                                                  m_showAssets = true;
+  bool                                                  m_showProperties = true;
   bool                                                  m_showMemoryStatistics = false;
   bool                                                  m_showRenderingStatistics = false;
   bool                                                  m_pendingBottomPanelDock = false;
@@ -190,6 +192,9 @@ private:
   MockRobotDataSource                                  m_mockRobotDataSource;
   MockSensorDataSource                                 m_mockSensorDataSource;
   MockTrainingDataSource                               m_mockTrainingDataSource;
+  std::chrono::steady_clock::time_point                 m_nextProfilerSample{};
+  float                                                 m_lastUiTimeMs{0.0F};
+  SceneLoadState                                        m_lastLoggedSceneState{SceneLoadState::Empty};
   std::shared_ptr<nvapp::ElementProfiler::ViewSettings> m_profilerViewSettings;
 
   // benchmark mode (enabled by command line), loadings will be synchronous and vsync off

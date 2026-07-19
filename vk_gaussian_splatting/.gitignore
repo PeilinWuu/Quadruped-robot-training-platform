@@ -1,5 +1,6 @@
 bin_x64/
 build/
+build_phase1b/
 _bin/
 _install/
 _autogen/
