@@ -7,18 +7,27 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
+node_modules/
+dist/
 dist-ssr
 *.local
 data/
 zip/
+uploads/
+coverage/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
+.vs/
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
