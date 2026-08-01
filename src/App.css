@@ -57,6 +57,11 @@
 .gaussian-viewport__metrics dt { color:#59788b; }.gaussian-viewport__metrics dd { margin:0; color:#a9c0cd; }
 .gaussian-viewport__overlay small { display:block; padding-top:6px; border-top:1px solid #17384a; color:#607f91; line-height:1.45; }
 .gaussian-viewport__loading { position:absolute; z-index:1; inset:0; display:grid; place-items:center; color:#7893a4; background:#091016; font-size:10px; letter-spacing:.5px; }
+.gaussian-viewport__controls { position:absolute; z-index:3; left:14px; bottom:14px; display:flex; gap:5px; pointer-events:auto; }
+.gaussian-viewport__controls button { height:26px; padding:0 9px; border:1px solid #28566d; border-radius:2px; color:#b8d0dc; background:#0a1c27e6; font-size:9px; cursor:pointer; }
+.gaussian-viewport__controls button:hover:not(:disabled) { border-color:#4d8ca8; color:#e1f0f5; background:#123043ed; }
+.gaussian-viewport__controls button:disabled { color:#526b78; border-color:#1b3948; cursor:not-allowed; opacity:.68; }
+.gaussian-viewport--scene-error .gaussian-viewport__status,.gaussian-viewport--fallback .gaussian-viewport__status { color:#ffbf69; }
 .telemetry { position:absolute; z-index:12; top:14px; left:14px; width:137px; padding:8px; background:#07131dd9; border:1px solid #214a60; display:flex; flex-direction:column; gap:7px; font-size:9px; }
 .telemetry strong { color:#d1e4ed; padding-bottom:5px; border-bottom:1px solid #1b394b; }
 .telemetry span { display:flex; justify-content:space-between; color:#728b9c; }.telemetry b { color:#d4e4eb; font-weight:500; }

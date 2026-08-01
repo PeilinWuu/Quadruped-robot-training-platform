@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   GaussianViewerState,
+  SceneSource,
   ViewerRuntime,
   ViewerRuntimeStatus,
 } from './types'
+
+const TEST_SCENE_SOURCE: SceneSource = {
+  kind: 'public-url',
+  url: `${import.meta.env.BASE_URL}gs/local/test-scene.sog`,
+  displayName: 'test-scene.sog',
+}
 
 const INITIAL_STATE: GaussianViewerState = {
   phase: 'initializing',
@@ -12,14 +19,29 @@ const INITIAL_STATE: GaussianViewerState = {
 }
 
 function stateFromStatus(status: ViewerRuntimeStatus): GaussianViewerState {
+  if (status.fallback) {
+    return {
+      phase: 'fallback',
+      status,
+      message: 'PlayCanvas 初始化失败，当前仅运行 WebGL2 诊断',
+    }
+  }
   if (status.error === 'WEBGL2_UNSUPPORTED') {
     return { phase: 'unsupported', status, message: null }
   }
-  if (status.error) {
-    return { phase: 'failed', status, message: 'Viewer 初始化失败' }
-  }
   if (status.contextLost) {
     return { phase: 'context-lost', status, message: null }
+  }
+  if (status.scenePhase === 'error') {
+    const message = status.error === 'SCENE_NOT_FOUND'
+      ? '未找到本地测试场景，请放置 public/gs/local/test-scene.sog'
+      : status.error === 'LOAD_CANCELLED'
+        ? '场景加载已取消'
+        : 'SOG 场景加载失败'
+    return { phase: 'scene-error', status, message }
+  }
+  if (status.error) {
+    return { phase: 'failed', status, message: 'Viewer 初始化失败' }
   }
   if (status.width === 0 || status.height === 0) {
     return { phase: 'waiting-layout', status, message: null }
@@ -30,9 +52,62 @@ function stateFromStatus(status: ViewerRuntimeStatus): GaussianViewerState {
 export function useGaussianViewer() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const runtimeRef = useRef<ViewerRuntime | null>(null)
+  const loadAbortRef = useRef<AbortController | null>(null)
+  const lifecycleGenerationRef = useRef(0)
   const [viewerState, setViewerState] = useState<GaussianViewerState>(INITIAL_STATE)
 
+  const loadFixedScene = useCallback((
+    runtimeOverride?: ViewerRuntime,
+    expectedGeneration = lifecycleGenerationRef.current,
+  ) => {
+    const runtime = runtimeOverride ?? runtimeRef.current
+    if (!runtime?.loadScene || runtime.getStatus().fallback) return
+    loadAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    void runtime.loadScene(TEST_SCENE_SOURCE, controller.signal)
+      .catch(() => {
+        // Runtime status reports a sanitized loading or cancellation error.
+      })
+      .finally(() => {
+        if (
+          lifecycleGenerationRef.current === expectedGeneration
+          && loadAbortRef.current === controller
+        ) {
+          loadAbortRef.current = null
+        }
+      })
+  }, [])
+
+  const reloadScene = useCallback(() => {
+    loadFixedScene()
+  }, [loadFixedScene])
+
+  const abortCurrentLoad = useCallback(() => {
+    loadAbortRef.current?.abort()
+    loadAbortRef.current = null
+  }, [])
+
+  const unloadScene = useCallback(() => {
+    abortCurrentLoad()
+    const runtime = runtimeRef.current
+    if (!runtime?.unloadScene) return
+    void runtime.unloadScene().catch(() => {
+      // Runtime status remains authoritative for unload errors.
+    })
+  }, [abortCurrentLoad])
+
+  const resetCamera = useCallback(() => {
+    runtimeRef.current?.resetCamera?.()
+  }, [])
+
+  const clearRuntimeRef = useCallback((expectedRuntime: ViewerRuntime | null) => {
+    if (runtimeRef.current === expectedRuntime) runtimeRef.current = null
+  }, [])
+
   useEffect(() => {
+    const lifecycleGeneration = ++lifecycleGenerationRef.current
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) {
@@ -122,12 +197,14 @@ export function useGaussianViewer() {
         }
 
         runtime = nextRuntime
+        runtimeRef.current = nextRuntime
         if (appliedSize.width >= 0 && appliedSize.height >= 0) {
           runtime.resize(appliedSize.width, appliedSize.height, appliedSize.pixelRatio)
         }
         if (document.visibilityState === 'hidden') runtime.pause()
         else runtime.start()
         reportStatus(runtime.getStatus())
+        loadFixedScene(runtime, lifecycleGeneration)
       })
       .catch(() => {
         if (!disposed) {
@@ -138,6 +215,7 @@ export function useGaussianViewer() {
 
     return () => {
       disposed = true
+      abortCurrentLoad()
       observer?.disconnect()
       observer = null
       document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -145,9 +223,17 @@ export function useGaussianViewer() {
       resizeRafId = null
       pendingSize = null
       runtime?.dispose()
+      clearRuntimeRef(runtime)
       runtime = null
     }
-  }, [])
+  }, [abortCurrentLoad, clearRuntimeRef, loadFixedScene])
 
-  return { containerRef, canvasRef, viewerState }
+  return {
+    containerRef,
+    canvasRef,
+    viewerState,
+    reloadScene,
+    unloadScene,
+    resetCamera,
+  }
 }

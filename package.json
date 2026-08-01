@@ -25,6 +25,7 @@
     "echarts-for-react": "^3.0.6",
     "express": "^5.2.1",
     "lucide-react": "^1.24.0",
+    "playcanvas": "2.21.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "zustand": "^5.0.14"
