@@ -11,6 +11,8 @@ node_modules/
 dist/
 dist-ssr
 /src-tauri/target/
+/native/mujoco-sidecar/build/
+/src-tauri/resources/sidecar/*.exe
 *.local
 data/
 zip/
