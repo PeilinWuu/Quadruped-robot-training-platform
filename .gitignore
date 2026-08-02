@@ -13,6 +13,9 @@ dist-ssr
 /src-tauri/target/
 /native/mujoco-sidecar/build/
 /src-tauri/resources/sidecar/*.exe
+/src-tauri/resources/sidecar/*.dll
+/.cache/mujoco/
+*.pdb
 *.local
 data/
 zip/

@@ -123,10 +123,12 @@ pub struct SpawnedSidecar {
     pub job: JobObject,
 }
 
-pub fn spawn(path: &Path) -> Result<SpawnedSidecar, SimulationError> {
+pub fn spawn(path: &Path, resource_root: &Path) -> Result<SpawnedSidecar, SimulationError> {
     let job = JobObject::create()?;
     let mut command = Command::new(path);
     command
+        .arg("--resource-root")
+        .arg(resource_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

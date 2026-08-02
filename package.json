@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "setup:mujoco": "node scripts/fetch-mujoco.mjs",
     "build:sidecar": "node scripts/build-mujoco-sidecar.mjs",
     "build:desktop": "npm run build:sidecar && npm run build",
     "dev": "concurrently -k -n WEB,API -c cyan,green \"vite\" \"tsx watch server/index.ts\"",

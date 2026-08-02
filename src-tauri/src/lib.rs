@@ -32,7 +32,16 @@ pub fn run() {
             simulation::commands::simulation_sidecar_start,
             simulation::commands::simulation_sidecar_status,
             simulation::commands::simulation_sidecar_ping,
-            simulation::commands::simulation_sidecar_stop
+            simulation::commands::simulation_sidecar_stop,
+            simulation::commands::simulation_load_model,
+            simulation::commands::simulation_run_start,
+            simulation::commands::simulation_run_pause,
+            simulation::commands::simulation_run_step,
+            simulation::commands::simulation_run_reset,
+            simulation::commands::simulation_run_stop,
+            simulation::commands::simulation_set_speed,
+            simulation::commands::simulation_latest_pose,
+            simulation::commands::simulation_subscribe
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Quadruped Robot Research desktop application");

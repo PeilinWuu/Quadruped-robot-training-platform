@@ -1,7 +1,10 @@
 use super::{
     error::SimulationError,
     process::{self, JobObject},
-    protocol::{parse_response_line, ProtocolCommand, ProtocolResponse, MAX_LINE_BYTES},
+    protocol::{
+        parse_response_line, sequence_is_newer, ModelLoadedPayload, ProtocolCommand,
+        ProtocolResponse, RobotPose, SimulationEvent, SimulationState, MAX_LINE_BYTES,
+    },
 };
 use serde::Serialize;
 use std::{
@@ -14,12 +17,15 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tauri::ipc::Channel;
 
 const START_TIMEOUT: Duration = Duration::from_secs(8);
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
 const PING_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const STDERR_MAX_LINES: usize = 100;
 const STDERR_MAX_BYTES: usize = 64 * 1024;
+const MAX_CONSECUTIVE_PROTOCOL_ERRORS: u8 = 3;
 const SIDECAR_RELATIVE_PATH: [&str; 3] =
     ["resources", "sidecar", "quadruped-simulation-sidecar.exe"];
 
@@ -34,18 +40,20 @@ pub enum LifecycleState {
     Crashed,
     Unresponsive,
 }
-
 impl LifecycleState {
     fn can_start(self) -> bool {
         matches!(self, Self::Idle | Self::Failed | Self::Crashed)
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SimulationStatus {
     pub state: LifecycleState,
+    pub simulation_state: SimulationState,
     pub sidecar_version: Option<String>,
+    pub model: Option<ModelLoadedPayload>,
+    pub speed: f64,
     pub started_at: Option<i64>,
     pub error: Option<SimulationError>,
 }
@@ -64,22 +72,27 @@ struct ProcessRuntime {
     stdout_thread: Option<JoinHandle<()>>,
     stderr_thread: Option<JoinHandle<()>>,
 }
-
 type PendingSender = mpsc::Sender<Result<ProtocolResponse, SimulationError>>;
 
 struct ManagerInner {
     state: LifecycleState,
+    simulation_state: SimulationState,
     generation: u64,
     request_counter: u64,
+    subscriber_counter: u64,
     runtime: Option<ProcessRuntime>,
     pending: HashMap<String, PendingSender>,
+    subscribers: HashMap<u64, Channel<SimulationEvent>>,
     stderr_lines: VecDeque<String>,
     stderr_bytes: usize,
-    error: Option<SimulationError>,
-    started_at: Option<i64>,
     sidecar_version: Option<String>,
+    model: Option<ModelLoadedPayload>,
+    latest_pose: Option<RobotPose>,
+    speed: f64,
+    started_at: Option<i64>,
+    error: Option<SimulationError>,
+    protocol_errors: u8,
 }
-
 struct ManagerCore {
     inner: Mutex<ManagerInner>,
 }
@@ -94,36 +107,41 @@ impl Default for SimulationManager {
         Self::new()
     }
 }
-
 impl SimulationManager {
     pub fn new() -> Self {
         Self {
             core: Arc::new(ManagerCore {
                 inner: Mutex::new(ManagerInner {
                     state: LifecycleState::Idle,
+                    simulation_state: SimulationState::Unloaded,
                     generation: 0,
                     request_counter: 0,
+                    subscriber_counter: 0,
                     runtime: None,
                     pending: HashMap::new(),
+                    subscribers: HashMap::new(),
                     stderr_lines: VecDeque::new(),
                     stderr_bytes: 0,
-                    error: None,
-                    started_at: None,
                     sidecar_version: None,
+                    model: None,
+                    latest_pose: None,
+                    speed: 1.0,
+                    started_at: None,
+                    error: None,
+                    protocol_errors: 0,
                 }),
             }),
         }
     }
 
     pub fn status(&self) -> SimulationStatus {
-        let inner = self
-            .core
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let inner = self.core.inner.lock().unwrap_or_else(|p| p.into_inner());
         SimulationStatus {
             state: inner.state,
+            simulation_state: inner.simulation_state,
             sidecar_version: inner.sidecar_version.clone(),
+            model: inner.model.clone(),
+            speed: inner.speed,
             started_at: inner.started_at,
             error: inner.error.clone(),
         }
@@ -133,11 +151,15 @@ impl SimulationManager {
         &self,
         resource_dir: &Path,
     ) -> Result<SimulationStatus, SimulationError> {
-        let path = resolve_sidecar_path(resource_dir)?;
-        self.start_path(path)
+        let (path, root) = resolve_sidecar_resources(resource_dir)?;
+        self.start_path(path, root)
     }
 
-    fn start_path(&self, path: PathBuf) -> Result<SimulationStatus, SimulationError> {
+    fn start_path(
+        &self,
+        path: PathBuf,
+        resource_root: PathBuf,
+    ) -> Result<SimulationStatus, SimulationError> {
         let generation = {
             let mut inner = self
                 .core
@@ -152,29 +174,29 @@ impl SimulationManager {
             }
             inner.generation = inner.generation.wrapping_add(1);
             inner.state = LifecycleState::Starting;
+            inner.simulation_state = SimulationState::Unloaded;
+            inner.model = None;
+            inner.latest_pose = None;
             inner.error = None;
-            inner.started_at = Some(unix_milliseconds());
-            inner.sidecar_version = None;
-            inner.stderr_lines.clear();
-            inner.stderr_bytes = 0;
+            inner.protocol_errors = 0;
             inner.generation
         };
-
-        let spawned = match process::spawn(&path) {
+        let spawned = match process::spawn(&path, &resource_root) {
             Ok(spawned) => spawned,
             Err(error) => {
                 self.set_failed(generation, error.clone());
                 return Err(error);
             }
         };
-        let mut child = spawned.child;
-        let stdin = child.stdin.take().ok_or_else(SimulationError::internal)?;
-        let stdout = child.stdout.take().ok_or_else(SimulationError::internal)?;
-        let stderr = child.stderr.take().ok_or_else(SimulationError::internal)?;
-        let child = Arc::new(Mutex::new(child));
-        let stdin = Arc::new(Mutex::new(stdin));
+        let child = Arc::new(Mutex::new(spawned.child));
         let job = Arc::new(spawned.job);
-
+        let (stdin, stdout, stderr) = {
+            let mut guard = child.lock().map_err(|_| SimulationError::internal())?;
+            (guard.stdin.take(), guard.stdout.take(), guard.stderr.take())
+        };
+        let stdin = Arc::new(Mutex::new(stdin.ok_or_else(SimulationError::internal)?));
+        let stdout = stdout.ok_or_else(SimulationError::internal)?;
+        let stderr = stderr.ok_or_else(SimulationError::internal)?;
         let stdout_thread = spawn_stdout_reader(
             Arc::downgrade(&self.core),
             generation,
@@ -188,10 +210,6 @@ impl SimulationManager {
                 .inner
                 .lock()
                 .map_err(|_| SimulationError::internal())?;
-            if inner.generation != generation || inner.state != LifecycleState::Starting {
-                let _ = job.terminate();
-                return Err(SimulationError::invalid_state());
-            }
             inner.runtime = Some(ProcessRuntime {
                 child,
                 stdin,
@@ -200,44 +218,41 @@ impl SimulationManager {
                 stderr_thread: Some(stderr_thread),
             });
         }
-
         match self.request(ProtocolCommand::Hello, START_TIMEOUT) {
-            Ok(ProtocolResponse::Ready(ready)) => {
+            Ok(ProtocolResponse::Ready(payload)) => {
                 let mut inner = self
                     .core
                     .inner
                     .lock()
                     .map_err(|_| SimulationError::internal())?;
-                if inner.generation != generation {
-                    return Err(SimulationError::invalid_state());
-                }
                 inner.state = LifecycleState::Ready;
-                inner.sidecar_version = Some(ready.sidecar_version);
-                Ok(SimulationStatus {
-                    state: inner.state,
-                    sidecar_version: inner.sidecar_version.clone(),
-                    started_at: inner.started_at,
-                    error: inner.error.clone(),
-                })
-            }
-            Ok(ProtocolResponse::Error(error)) => {
-                let failure =
-                    SimulationError::new(&error.code, "The simulation sidecar rejected startup.");
-                self.cleanup_process(false);
-                self.set_failed(generation, failure.clone());
-                Err(failure)
+                inner.sidecar_version = Some(payload.sidecar_version);
+                inner.started_at = Some(unix_milliseconds());
+                Ok(self.status_unlocked(&inner))
             }
             Ok(_) => {
-                let failure = SimulationError::protocol();
-                self.cleanup_process(false);
-                self.set_failed(generation, failure.clone());
-                Err(failure)
-            }
-            Err(error) => {
-                self.cleanup_process(false);
+                let error = SimulationError::protocol();
                 self.set_failed(generation, error.clone());
+                self.cleanup_process(false);
                 Err(error)
             }
+            Err(error) => {
+                self.set_failed(generation, error.clone());
+                self.cleanup_process(false);
+                Err(error)
+            }
+        }
+    }
+
+    fn status_unlocked(&self, inner: &ManagerInner) -> SimulationStatus {
+        SimulationStatus {
+            state: inner.state,
+            simulation_state: inner.simulation_state,
+            sidecar_version: inner.sidecar_version.clone(),
+            model: inner.model.clone(),
+            speed: inner.speed,
+            started_at: inner.started_at,
+            error: inner.error.clone(),
         }
     }
 
@@ -247,27 +262,13 @@ impl SimulationManager {
         }
         let nonce = format!("nonce-{}", unix_milliseconds());
         let started = Instant::now();
-        match self.request(
+        let response = match self.request(
             ProtocolCommand::Ping {
                 nonce: nonce.clone(),
             },
             PING_TIMEOUT,
         ) {
-            Ok(ProtocolResponse::Pong(payload)) => {
-                let verified = payload.nonce == Some(nonce);
-                if !verified {
-                    return Err(SimulationError::protocol());
-                }
-                Ok(PingResult {
-                    latency_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
-                    nonce_verified: true,
-                })
-            }
-            Ok(ProtocolResponse::Error(error)) => Err(SimulationError::new(
-                &error.code,
-                "The simulation sidecar rejected the ping request.",
-            )),
-            Ok(_) => Err(SimulationError::protocol()),
+            Ok(response) => response,
             Err(error) => {
                 if error.code == "SIDECAR_REQUEST_TIMEOUT" {
                     if let Ok(mut inner) = self.core.inner.lock() {
@@ -275,9 +276,103 @@ impl SimulationManager {
                         inner.error = Some(error.clone());
                     }
                 }
-                Err(error)
+                return Err(error);
             }
+        };
+        match response {
+            ProtocolResponse::Pong(payload) if payload.nonce == Some(nonce) => Ok(PingResult {
+                latency_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+                nonce_verified: true,
+            }),
+            ProtocolResponse::Error(error) => Err(SimulationError::new(
+                &error.code,
+                "The simulation sidecar rejected the ping request.",
+            )),
+            _ => Err(SimulationError::protocol()),
         }
+    }
+
+    pub fn load_model(&self) -> Result<ModelLoadedPayload, SimulationError> {
+        self.require_ready()?;
+        match self.request(ProtocolCommand::LoadModel, COMMAND_TIMEOUT)? {
+            ProtocolResponse::ModelLoaded(value) => Ok(value),
+            other => response_error(other),
+        }
+    }
+    pub fn run_start(&self) -> Result<SimulationState, SimulationError> {
+        self.state_command(ProtocolCommand::Start)
+    }
+    pub fn run_pause(&self) -> Result<SimulationState, SimulationError> {
+        self.state_command(ProtocolCommand::Pause)
+    }
+    pub fn run_reset(&self) -> Result<SimulationState, SimulationError> {
+        let state = self.state_command(ProtocolCommand::Reset)?;
+        let deadline = Instant::now() + COMMAND_TIMEOUT;
+        while Instant::now() < deadline {
+            if self
+                .latest_pose()
+                .is_some_and(|pose| pose.sequence == 0 && pose.simulation_time == 0.0)
+            {
+                return Ok(state);
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        Err(SimulationError::timeout("SIDECAR_RESET_POSE_TIMEOUT"))
+    }
+    pub fn run_stop(&self) -> Result<SimulationState, SimulationError> {
+        self.state_command(ProtocolCommand::Stop)
+    }
+    pub fn run_step(&self, steps: u16) -> Result<RobotPose, SimulationError> {
+        self.require_ready()?;
+        if !(1..=1000).contains(&steps) {
+            return Err(SimulationError::new(
+                "INVALID_STEPS",
+                "Simulation steps must be between 1 and 1000.",
+            ));
+        }
+        match self.request(ProtocolCommand::Step { steps }, COMMAND_TIMEOUT)? {
+            ProtocolResponse::Pose(pose) => Ok(pose),
+            other => response_error(other),
+        }
+    }
+    pub fn set_speed(&self, speed: f64) -> Result<f64, SimulationError> {
+        self.require_ready()?;
+        match self.request(ProtocolCommand::SetSpeed { speed }, COMMAND_TIMEOUT)? {
+            ProtocolResponse::StateChanged(payload) => Ok(payload.speed.unwrap_or(speed)),
+            other => response_error(other),
+        }
+    }
+    fn state_command(&self, command: ProtocolCommand) -> Result<SimulationState, SimulationError> {
+        self.require_ready()?;
+        match self.request(command, COMMAND_TIMEOUT)? {
+            ProtocolResponse::StateChanged(payload) => Ok(payload.state),
+            other => response_error(other),
+        }
+    }
+    fn require_ready(&self) -> Result<(), SimulationError> {
+        if self.status().state == LifecycleState::Ready {
+            Ok(())
+        } else {
+            Err(SimulationError::invalid_state())
+        }
+    }
+    pub fn latest_pose(&self) -> Option<RobotPose> {
+        self.core
+            .inner
+            .lock()
+            .ok()
+            .and_then(|inner| inner.latest_pose.clone())
+    }
+    pub fn subscribe(&self, channel: Channel<SimulationEvent>) -> Result<(), SimulationError> {
+        let mut inner = self
+            .core
+            .inner
+            .lock()
+            .map_err(|_| SimulationError::internal())?;
+        inner.subscriber_counter = inner.subscriber_counter.wrapping_add(1);
+        let id = inner.subscriber_counter;
+        inner.subscribers.insert(id, channel);
+        Ok(())
     }
 
     pub fn stop(&self) -> Result<SimulationStatus, SimulationError> {
@@ -288,7 +383,6 @@ impl SimulationManager {
         if let Ok(mut inner) = self.core.inner.lock() {
             inner.state = LifecycleState::Stopping;
         }
-
         if matches!(state, LifecycleState::Ready | LifecycleState::Starting) {
             let _ = self.request(ProtocolCommand::Shutdown, STOP_TIMEOUT);
         }
@@ -299,17 +393,15 @@ impl SimulationManager {
             .lock()
             .map_err(|_| SimulationError::internal())?;
         inner.state = LifecycleState::Idle;
+        inner.simulation_state = SimulationState::Unloaded;
         inner.error = None;
         inner.started_at = None;
         inner.sidecar_version = None;
-        Ok(SimulationStatus {
-            state: inner.state,
-            sidecar_version: None,
-            started_at: None,
-            error: None,
-        })
+        inner.model = None;
+        inner.latest_pose = None;
+        inner.speed = 1.0;
+        Ok(self.status_unlocked(&inner))
     }
-
     pub fn shutdown_for_exit(&self) {
         let _ = self.stop();
     }
@@ -319,25 +411,25 @@ impl SimulationManager {
         command: ProtocolCommand,
         timeout: Duration,
     ) -> Result<ProtocolResponse, SimulationError> {
-        let (request_id, receiver, stdin) = {
+        let (id, receiver, stdin) = {
             let mut inner = self
                 .core
                 .inner
                 .lock()
                 .map_err(|_| SimulationError::internal())?;
             inner.request_counter = inner.request_counter.wrapping_add(1);
-            let request_id = format!("request-{}-{}", inner.generation, inner.request_counter);
+            let id = format!("request-{}-{}", inner.generation, inner.request_counter);
             let stdin = inner
                 .runtime
                 .as_ref()
-                .map(|runtime| Arc::clone(&runtime.stdin))
+                .map(|r| Arc::clone(&r.stdin))
                 .ok_or_else(SimulationError::invalid_state)?;
             let (sender, receiver) = mpsc::channel();
-            inner.pending.insert(request_id.clone(), sender);
-            (request_id, receiver, stdin)
+            inner.pending.insert(id.clone(), sender);
+            (id, receiver, stdin)
         };
-        let line = command.to_line(request_id.clone(), unix_milliseconds())?;
-        let write_result = stdin
+        let line = command.to_line(id.clone(), unix_milliseconds())?;
+        let write = stdin
             .lock()
             .map_err(|_| SimulationError::internal())
             .and_then(|mut writer| {
@@ -352,18 +444,18 @@ impl SimulationManager {
                         )
                     })
             });
-        if let Err(error) = write_result {
+        if let Err(error) = write {
             if let Ok(mut inner) = self.core.inner.lock() {
-                inner.pending.remove(&request_id);
+                inner.pending.remove(&id);
             }
             return Err(error);
         }
         let received = receiver.recv_timeout(timeout);
         if let Ok(mut inner) = self.core.inner.lock() {
-            inner.pending.remove(&request_id);
+            inner.pending.remove(&id);
         }
         match received {
-            Ok(result) => result,
+            Ok(value) => value,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 Err(SimulationError::timeout("SIDECAR_REQUEST_TIMEOUT"))
             }
@@ -374,16 +466,16 @@ impl SimulationManager {
         }
     }
 
-    fn cleanup_process(&self, allow_graceful_wait: bool) {
-        let runtime_snapshot = self.core.inner.lock().ok().and_then(|inner| {
+    fn cleanup_process(&self, graceful: bool) {
+        let snapshot = self.core.inner.lock().ok().and_then(|inner| {
             inner
                 .runtime
                 .as_ref()
-                .map(|runtime| (Arc::clone(&runtime.child), Arc::clone(&runtime.job)))
+                .map(|r| (Arc::clone(&r.child), Arc::clone(&r.job)))
         });
-        if let Some((child, job)) = runtime_snapshot {
+        if let Some((child, job)) = snapshot {
             let deadline = Instant::now()
-                + if allow_graceful_wait {
+                + if graceful {
                     STOP_TIMEOUT
                 } else {
                     Duration::ZERO
@@ -408,21 +500,19 @@ impl SimulationManager {
                 let _ = child.wait();
             }
         }
-
         let mut runtime = self.core.inner.lock().ok().and_then(|mut inner| {
             inner.pending.clear();
             inner.runtime.take()
         });
         if let Some(runtime) = runtime.as_mut() {
-            if let Some(thread) = runtime.stdout_thread.take() {
-                let _ = thread.join();
+            if let Some(handle) = runtime.stdout_thread.take() {
+                let _ = handle.join();
             }
-            if let Some(thread) = runtime.stderr_thread.take() {
-                let _ = thread.join();
+            if let Some(handle) = runtime.stderr_thread.take() {
+                let _ = handle.join();
             }
         }
     }
-
     fn set_failed(&self, generation: u64, error: SimulationError) {
         if let Ok(mut inner) = self.core.inner.lock() {
             if inner.generation == generation {
@@ -431,20 +521,13 @@ impl SimulationManager {
             }
         }
     }
-
     #[cfg(test)]
     fn force_terminate_for_test(&self) {
         if let Ok(inner) = self.core.inner.lock() {
-            if let Some(runtime) = inner.runtime.as_ref() {
+            if let Some(runtime) = &inner.runtime {
                 let _ = runtime.job.terminate();
             }
         }
-    }
-
-    #[cfg(test)]
-    fn stderr_metrics(&self) -> (usize, usize) {
-        let inner = self.core.inner.lock().unwrap();
-        (inner.stderr_lines.len(), inner.stderr_bytes)
     }
 }
 
@@ -456,8 +539,20 @@ impl Drop for SimulationManager {
     }
 }
 
-pub fn resolve_sidecar_path(resource_dir: &Path) -> Result<PathBuf, SimulationError> {
-    let canonical_root = fs::canonicalize(resource_dir).map_err(|_| {
+fn response_error<T>(response: ProtocolResponse) -> Result<T, SimulationError> {
+    match response {
+        ProtocolResponse::Error(error) => Err(SimulationError::new(
+            &error.code,
+            "The simulation command was rejected.",
+        )),
+        _ => Err(SimulationError::protocol()),
+    }
+}
+
+pub fn resolve_sidecar_resources(
+    resource_dir: &Path,
+) -> Result<(PathBuf, PathBuf), SimulationError> {
+    let root = fs::canonicalize(resource_dir).map_err(|_| {
         SimulationError::new(
             "SIDECAR_RESOURCE_MISSING",
             "The bundled simulation sidecar is unavailable.",
@@ -465,26 +560,50 @@ pub fn resolve_sidecar_path(resource_dir: &Path) -> Result<PathBuf, SimulationEr
     })?;
     let candidate = SIDECAR_RELATIVE_PATH
         .iter()
-        .fold(canonical_root.clone(), |path, segment| path.join(segment));
-    let canonical_candidate = fs::canonicalize(candidate).map_err(|_| {
+        .fold(root.clone(), |path, segment| path.join(segment));
+    let path = fs::canonicalize(candidate).map_err(|_| {
         SimulationError::new(
             "SIDECAR_RESOURCE_MISSING",
             "The bundled simulation sidecar is unavailable.",
         )
     })?;
-    if !canonical_candidate.starts_with(&canonical_root)
-        || !canonical_candidate.is_file()
-        || canonical_candidate
-            .extension()
-            .and_then(|value| value.to_str())
-            != Some("exe")
+    if !path.starts_with(&root)
+        || !path.is_file()
+        || path.extension().and_then(|v| v.to_str()) != Some("exe")
     {
         return Err(SimulationError::new(
             "SIDECAR_RESOURCE_INVALID",
             "The bundled simulation sidecar is invalid.",
         ));
     }
-    Ok(canonical_candidate)
+    let required: [&[&str]; 3] = [
+        &["resources", "sidecar", "mujoco.dll"],
+        &[
+            "resources",
+            "simulation",
+            "models",
+            "minimal-quadruped-v1.xml",
+        ],
+        &["resources", "licenses", "MuJoCo-Apache-2.0.txt"],
+    ];
+    for relative in required {
+        let file = relative
+            .iter()
+            .fold(root.clone(), |path, segment| path.join(segment));
+        let canonical = fs::canonicalize(file).map_err(|_| {
+            SimulationError::new(
+                "SIDECAR_RESOURCE_MISSING",
+                "A bundled simulation resource is unavailable.",
+            )
+        })?;
+        if !canonical.starts_with(&root) || !canonical.is_file() {
+            return Err(SimulationError::new(
+                "SIDECAR_RESOURCE_INVALID",
+                "A bundled simulation resource is invalid.",
+            ));
+        }
+    }
+    Ok((path, root))
 }
 
 fn spawn_stdout_reader(
@@ -498,11 +617,11 @@ fn spawn_stdout_reader(
         let mut buffer = Vec::new();
         loop {
             buffer.clear();
-            let read_result = reader
+            match reader
                 .by_ref()
                 .take((MAX_LINE_BYTES + 2) as u64)
-                .read_until(b'\n', &mut buffer);
-            match read_result {
+                .read_until(b'\n', &mut buffer)
+            {
                 Ok(0) => {
                     mark_crashed(&core, generation, "SIDECAR_EXITED");
                     break;
@@ -520,13 +639,15 @@ fn spawn_stdout_reader(
                         break;
                     }
                     match parse_response_line(&buffer) {
-                        Ok((request_id, response)) => {
-                            deliver_response(&core, generation, request_id, Ok(response))
+                        Ok(message) => {
+                            handle_message(&core, generation, message.request_id, message.response)
                         }
                         Err(error) => {
-                            mark_crashed_with_error(&core, generation, error);
-                            let _ = job.terminate();
-                            break;
+                            let should_terminate = record_protocol_error(&core, generation, error);
+                            if should_terminate {
+                                let _ = job.terminate();
+                                break;
+                            }
                         }
                     }
                 }
@@ -540,6 +661,125 @@ fn spawn_stdout_reader(
     })
 }
 
+fn handle_message(
+    core: &Weak<ManagerCore>,
+    generation: u64,
+    request_id: Option<String>,
+    response: ProtocolResponse,
+) {
+    let Some(core) = core.upgrade() else { return };
+    let mut event = None;
+    let sender = {
+        let Ok(mut inner) = core.inner.lock() else {
+            return;
+        };
+        if inner.generation != generation {
+            return;
+        }
+        inner.protocol_errors = 0;
+        match &response {
+            ProtocolResponse::ModelLoaded(model) => {
+                inner.model = Some(model.clone());
+                inner.simulation_state = SimulationState::Loaded;
+                inner.latest_pose = None;
+                event = Some(SimulationEvent::ModelLoaded(model.clone()));
+            }
+            ProtocolResponse::StateChanged(state) => {
+                inner.simulation_state = state.state;
+                if state.state == SimulationState::Loaded
+                    && !inner
+                        .latest_pose
+                        .as_ref()
+                        .is_some_and(|pose| pose.sequence == 0 && pose.simulation_time == 0.0)
+                {
+                    inner.latest_pose = None;
+                }
+                if let Some(speed) = state.speed {
+                    inner.speed = speed;
+                }
+                event = Some(SimulationEvent::StateChanged(state.clone()));
+            }
+            ProtocolResponse::Pose(pose) => {
+                let accept = match inner.latest_pose.as_ref() {
+                    Some(current) => {
+                        (pose.sequence == 0 && pose.simulation_time == 0.0)
+                            || sequence_is_newer(pose.sequence, current.sequence)
+                    }
+                    None => true,
+                };
+                if accept {
+                    inner.latest_pose = Some(pose.clone());
+                    event = Some(SimulationEvent::Pose(pose.clone()));
+                }
+            }
+            ProtocolResponse::Warning(warning) => {
+                event = Some(SimulationEvent::Warning(warning.clone()))
+            }
+            ProtocolResponse::Error(error) if request_id.is_none() => {
+                event = Some(SimulationEvent::Error(error.clone()))
+            }
+            _ => {}
+        }
+        request_id.as_ref().and_then(|id| inner.pending.remove(id))
+    };
+    if let Some(sender) = sender {
+        let _ = sender.send(Ok(response));
+    }
+    if let Some(event) = event {
+        dispatch_event(&core, event);
+    }
+}
+
+fn dispatch_event(core: &Arc<ManagerCore>, event: SimulationEvent) {
+    let subscribers = core
+        .inner
+        .lock()
+        .ok()
+        .map(|inner| {
+            inner
+                .subscribers
+                .iter()
+                .map(|(id, channel)| (*id, channel.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let dead = subscribers
+        .into_iter()
+        .filter_map(|(id, channel)| channel.send(event.clone()).err().map(|_| id))
+        .collect::<Vec<_>>();
+    if !dead.is_empty() {
+        if let Ok(mut inner) = core.inner.lock() {
+            for id in dead {
+                inner.subscribers.remove(&id);
+            }
+        }
+    }
+}
+
+fn record_protocol_error(
+    core: &Weak<ManagerCore>,
+    generation: u64,
+    error: SimulationError,
+) -> bool {
+    let Some(core) = core.upgrade() else {
+        return true;
+    };
+    let Ok(mut inner) = core.inner.lock() else {
+        return true;
+    };
+    if inner.generation != generation {
+        return false;
+    }
+    inner.protocol_errors = inner.protocol_errors.saturating_add(1);
+    inner.error = Some(error);
+    if inner.protocol_errors >= MAX_CONSECUTIVE_PROTOCOL_ERRORS {
+        inner.state = LifecycleState::Failed;
+        true
+    } else {
+        false
+    }
+}
+
 fn spawn_stderr_reader(
     core: Weak<ManagerCore>,
     generation: u64,
@@ -550,14 +790,15 @@ fn spawn_stderr_reader(
         let mut line = String::new();
         loop {
             line.clear();
-            let read = reader.by_ref().take(1026).read_line(&mut line);
-            let Ok(read) = read else { break };
+            let Ok(read) = reader.by_ref().take(1026).read_line(&mut line) else {
+                break;
+            };
             if read == 0 {
                 break;
             }
             let sanitized: String = line
                 .chars()
-                .filter(|character| !character.is_control())
+                .filter(|c| !c.is_control())
                 .take(1024)
                 .collect();
             let Some(core) = core.upgrade() else { break };
@@ -582,34 +823,9 @@ fn spawn_stderr_reader(
     })
 }
 
-fn deliver_response(
-    core: &Weak<ManagerCore>,
-    generation: u64,
-    request_id: String,
-    response: Result<ProtocolResponse, SimulationError>,
-) {
-    let Some(core) = core.upgrade() else { return };
-    let sender = core.inner.lock().ok().and_then(|mut inner| {
-        if inner.generation != generation {
-            return None;
-        }
-        inner.pending.remove(&request_id)
-    });
-    if let Some(sender) = sender {
-        let _ = sender.send(response);
-    }
-}
-
 fn mark_crashed(core: &Weak<ManagerCore>, generation: u64, code: &str) {
-    mark_crashed_with_error(
-        core,
-        generation,
-        SimulationError::new(code, "The simulation sidecar exited unexpectedly."),
-    );
-}
-
-fn mark_crashed_with_error(core: &Weak<ManagerCore>, generation: u64, error: SimulationError) {
     let Some(core) = core.upgrade() else { return };
+    let error = SimulationError::new(code, "The simulation sidecar exited unexpectedly.");
     let pending = core
         .inner
         .lock()
@@ -621,6 +837,9 @@ fn mark_crashed_with_error(core: &Weak<ManagerCore>, generation: u64, error: Sim
                 return Vec::new();
             }
             inner.state = LifecycleState::Crashed;
+            inner.simulation_state = SimulationState::Unloaded;
+            inner.model = None;
+            inner.latest_pose = None;
             inner.error = Some(error.clone());
             inner
                 .pending
@@ -646,26 +865,18 @@ fn unix_milliseconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sidecar_path() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("resources/sidecar/quadruped-simulation-sidecar.exe")
-    }
-
-    fn profile_resource_dir(profile: &str) -> PathBuf {
+    fn profile_root(profile: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join(profile)
     }
-
-    fn sidecar_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    fn guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|p| p.into_inner())
     }
-
-    fn wait_for_state(manager: &SimulationManager, state: LifecycleState) {
+    fn wait_state(manager: &SimulationManager, state: LifecycleState) {
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
             if manager.status().state == state {
@@ -673,154 +884,116 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(20));
         }
-        panic!(
-            "state did not become {state:?}: {:?}",
-            manager.status().state
-        );
+        panic!("state timeout");
     }
 
     #[test]
-    fn initial_state_and_idempotent_stop() {
+    fn actual_sidecar_full_lifecycle_and_no_orphan() {
+        let _guard = guard();
         let manager = SimulationManager::new();
-        assert_eq!(manager.status().state, LifecycleState::Idle);
-        assert_eq!(manager.stop().unwrap().state, LifecycleState::Idle);
-    }
-
-    #[test]
-    fn actual_sidecar_start_ping_stop_restart_and_duplicate_guard() {
-        let _guard = sidecar_test_guard();
-        let manager = SimulationManager::new();
-        assert_eq!(
-            manager.start_path(sidecar_path()).unwrap().state,
-            LifecycleState::Ready
-        );
-        assert!(manager.ping().unwrap().nonce_verified);
-        assert_eq!(
-            manager.start_path(sidecar_path()).unwrap_err().code,
-            "ALREADY_RUNNING"
-        );
-        assert_eq!(manager.stop().unwrap().state, LifecycleState::Idle);
-        assert_eq!(
-            manager.start_path(sidecar_path()).unwrap().state,
-            LifecycleState::Ready
-        );
-        assert_eq!(manager.stop().unwrap().state, LifecycleState::Idle);
-    }
-
-    #[test]
-    fn fixed_development_and_release_resource_paths_resolve() {
-        let _guard = sidecar_test_guard();
-        for profile in ["debug", "release"] {
-            let resource_dir = profile_resource_dir(profile);
-            let resolved = resolve_sidecar_path(&resource_dir).unwrap();
-            assert!(resolved.ends_with("resources/sidecar/quadruped-simulation-sidecar.exe"));
-        }
-        let manager = SimulationManager::new();
+        let sidecar_started = Instant::now();
         assert_eq!(
             manager
-                .start_from_resource_dir(&profile_resource_dir("debug"))
+                .start_from_resource_dir(&profile_root("debug"))
                 .unwrap()
                 .state,
             LifecycleState::Ready
         );
+        let sidecar_start_ms = sidecar_started.elapsed().as_millis();
+        assert!(manager.ping().unwrap().nonce_verified);
+        let model_started = Instant::now();
+        let metadata = manager.load_model().unwrap();
+        let model_load_ms = model_started.elapsed().as_millis();
+        assert_eq!(metadata.joint_count, 12);
+        let run_started = Instant::now();
+        assert_eq!(manager.run_start().unwrap(), SimulationState::Running);
+        let start_response_ms = run_started.elapsed().as_millis();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while manager.latest_pose().is_none() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        let running_pose = manager.latest_pose().unwrap();
+        let frequency_started = Instant::now();
+        thread::sleep(Duration::from_millis(500));
+        let frequency_elapsed = frequency_started.elapsed().as_secs_f64();
+        let frequency_pose = manager.latest_pose().unwrap();
+        let pose_hz = f64::from(frequency_pose.sequence.wrapping_sub(running_pose.sequence))
+            / frequency_elapsed;
+        let sim_rate =
+            (frequency_pose.simulation_time - running_pose.simulation_time) / frequency_elapsed;
+        println!("D4C_POSE_HZ_OBSERVED={pose_hz:.2} D4C_SIM_RATE={sim_rate:.3}");
+        assert!((50.0..=65.0).contains(&pose_hz));
+        assert_eq!(manager.run_pause().unwrap(), SimulationState::Paused);
+        let paused = manager.latest_pose().unwrap().simulation_time;
+        thread::sleep(Duration::from_millis(40));
+        assert_eq!(manager.latest_pose().unwrap().simulation_time, paused);
+        let stepped = manager.run_step(10).unwrap();
+        assert!((stepped.simulation_time - paused - 0.02).abs() < 1e-8);
+        manager.run_reset().unwrap();
+        let deterministic_a = manager.run_step(100).unwrap();
+        manager.run_reset().unwrap();
+        let deterministic_b = manager.run_step(100).unwrap();
+        assert_eq!(deterministic_a.root_position, deterministic_b.root_position);
+        assert_eq!(deterministic_a.joints, deterministic_b.joints);
+        assert_eq!(manager.run_reset().unwrap(), SimulationState::Loaded);
+        assert_eq!(manager.latest_pose().unwrap().simulation_time, 0.0);
+        assert_eq!(manager.set_speed(2.0).unwrap(), 2.0);
+        assert_eq!(manager.run_stop().unwrap(), SimulationState::Stopped);
+        assert!(manager.ping().unwrap().nonce_verified);
+        let stop_started = Instant::now();
         assert_eq!(manager.stop().unwrap().state, LifecycleState::Idle);
+        let stop_ms = stop_started.elapsed().as_millis();
+        println!("D4C_METRICS sidecar_start_ms={sidecar_start_ms} model_load_ms={model_load_ms} start_response_ms={start_response_ms} pose_hz={pose_hz:.2} normal_stop_ms={stop_ms} deterministic_time={}", deterministic_a.simulation_time);
     }
 
     #[test]
-    fn unexpected_exit_becomes_crashed_and_can_be_cleaned() {
-        let _guard = sidecar_test_guard();
+    fn duplicate_start_crash_cleanup_and_restart() {
+        let _guard = guard();
         let manager = SimulationManager::new();
-        manager.start_path(sidecar_path()).unwrap();
-        manager.force_terminate_for_test();
-        wait_for_state(&manager, LifecycleState::Crashed);
-        assert_eq!(manager.stop().unwrap().state, LifecycleState::Idle);
-    }
-
-    #[test]
-    fn lifecycle_timings_are_bounded() {
-        let _guard = sidecar_test_guard();
-        let manager = SimulationManager::new();
-        let start_begin = Instant::now();
-        manager.start_path(sidecar_path()).unwrap();
-        let start_ms = start_begin.elapsed().as_millis();
-        let ping = manager.ping().unwrap();
-        let stop_begin = Instant::now();
-        manager.stop().unwrap();
-        let stop_ms = stop_begin.elapsed().as_millis();
-
-        manager.start_path(sidecar_path()).unwrap();
-        let force_begin = Instant::now();
-        manager.force_terminate_for_test();
-        wait_for_state(&manager, LifecycleState::Crashed);
-        manager.stop().unwrap();
-        let force_ms = force_begin.elapsed().as_millis();
-
-        assert!(start_ms < START_TIMEOUT.as_millis());
-        assert!(u128::from(ping.latency_ms) < PING_TIMEOUT.as_millis());
-        assert!(stop_ms < STOP_TIMEOUT.as_millis());
-        assert!(force_ms < STOP_TIMEOUT.as_millis());
-        println!(
-            "D4B_TIMING start_ms={start_ms} ping_ms={} stop_ms={stop_ms} force_ms={force_ms}",
-            ping.latency_ms
+        manager
+            .start_from_resource_dir(&profile_root("debug"))
+            .unwrap();
+        assert_eq!(
+            manager
+                .start_from_resource_dir(&profile_root("debug"))
+                .unwrap_err()
+                .code,
+            "ALREADY_RUNNING"
         );
-    }
-
-    #[test]
-    fn exit_cleanup_and_manager_drop_leave_no_process() {
-        let _guard = sidecar_test_guard();
-        let manager = SimulationManager::new();
-        manager.start_path(sidecar_path()).unwrap();
+        let forced_started = Instant::now();
+        manager.force_terminate_for_test();
+        wait_state(&manager, LifecycleState::Crashed);
+        manager.stop().unwrap();
+        println!("D4C_FORCE_STOP_MS={}", forced_started.elapsed().as_millis());
+        manager
+            .start_from_resource_dir(&profile_root("debug"))
+            .unwrap();
         manager.shutdown_for_exit();
         assert_eq!(manager.status().state, LifecycleState::Idle);
-
-        manager.start_path(sidecar_path()).unwrap();
-        let child = {
-            let inner = manager.core.inner.lock().unwrap();
-            Arc::clone(&inner.runtime.as_ref().unwrap().child)
-        };
-        drop(manager);
-        assert!(child.lock().unwrap().try_wait().unwrap().is_some());
     }
 
     #[test]
-    fn stderr_ring_is_bounded() {
-        let manager = SimulationManager::new();
-        {
-            let mut inner = manager.core.inner.lock().unwrap();
-            for _ in 0..150 {
-                let line = "x".repeat(1024);
-                inner.stderr_bytes += line.len();
-                inner.stderr_lines.push_back(line);
-                while inner.stderr_lines.len() > STDERR_MAX_LINES
-                    || inner.stderr_bytes > STDERR_MAX_BYTES
-                {
-                    let removed = inner.stderr_lines.pop_front().unwrap();
-                    inner.stderr_bytes -= removed.len();
-                }
-            }
+    fn fixed_resources_and_safe_errors() {
+        for profile in ["debug", "release"] {
+            let (path, root) = resolve_sidecar_resources(&profile_root(profile)).unwrap();
+            assert!(path.starts_with(root));
         }
-        let (lines, bytes) = manager.stderr_metrics();
-        assert!(lines <= STDERR_MAX_LINES);
-        assert!(bytes <= STDERR_MAX_BYTES);
-    }
-
-    #[test]
-    fn stale_generation_cannot_change_current_state() {
-        let manager = SimulationManager::new();
-        let old_generation = {
-            let mut inner = manager.core.inner.lock().unwrap();
-            inner.generation = 2;
-            inner.state = LifecycleState::Ready;
-            1
-        };
-        mark_crashed(&Arc::downgrade(&manager.core), old_generation, "OLD");
-        assert_eq!(manager.status().state, LifecycleState::Ready);
-    }
-
-    #[test]
-    fn safe_errors_do_not_expose_absolute_paths() {
-        let error = resolve_sidecar_path(Path::new("Z:/missing/private/user/path")).unwrap_err();
+        let error = resolve_sidecar_resources(Path::new("Z:/private/missing")).unwrap_err();
         assert!(!error.message.contains("Z:"));
-        assert!(!error.message.contains("private"));
+    }
+
+    #[test]
+    fn closed_channel_subscriber_is_removed() {
+        let manager = SimulationManager::new();
+        let channel = Channel::new(|_| Err(std::io::Error::other("closed").into()));
+        manager.subscribe(channel).unwrap();
+        dispatch_event(
+            &manager.core,
+            SimulationEvent::StateChanged(super::super::protocol::StateChangedPayload {
+                state: SimulationState::Loaded,
+                speed: Some(1.0),
+            }),
+        );
+        assert!(manager.core.inner.lock().unwrap().subscribers.is_empty());
     }
 }

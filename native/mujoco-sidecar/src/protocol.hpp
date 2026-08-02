@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
+#include <memory>
 #include <string>
 
 namespace sidecar {
@@ -15,13 +17,21 @@ struct ProtocolResult {
 
 enum class SidecarState { starting, ready, stopping };
 
+class SimulationEngine;
+
 class ProtocolHandler {
  public:
+  using EventSink = std::function<void(std::string)>;
+  ProtocolHandler(std::string resource_root, EventSink event_sink);
+  ~ProtocolHandler();
+  ProtocolHandler(const ProtocolHandler&) = delete;
+  ProtocolHandler& operator=(const ProtocolHandler&) = delete;
   ProtocolResult process_line(const std::string& line);
   [[nodiscard]] SidecarState state() const noexcept { return state_; }
 
  private:
   SidecarState state_{SidecarState::starting};
+  std::unique_ptr<SimulationEngine> simulation_;
 };
 
 std::string message_too_large_response();
