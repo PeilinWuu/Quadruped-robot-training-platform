@@ -1,25 +1,68 @@
-import { Entity, Vec3 } from 'playcanvas'
+import { Entity, Quat, Vec3 } from 'playcanvas'
 
 const MIN_DISTANCE = 0.05
 const MAX_DISTANCE = 100_000
-const MAX_PITCH = Math.PI * 0.495
-const ROTATE_SPEED = 0.006
+const ROTATE_SPEED_DEGREES = 0.006 * 180 / Math.PI
 const PAN_SPEED = 0.0015
 const ZOOM_SPEED = 0.001
+const WORLD_UP = new Vec3(0, 1, 0)
+const BASE_RIGHT = new Vec3(1, 0, 0)
+const BASE_UP = new Vec3(0, 1, 0)
+const BASE_OFFSET = new Vec3(0, 0, 1)
 
 type PointerMode = 'orbit' | 'pan'
+
+export interface OrbitFrame {
+  position: Vec3
+  right: Vec3
+  up: Vec3
+}
+
+export function rotateOrbitQuaternion(
+  current: Quat,
+  horizontalDegrees: number,
+  verticalDegrees: number,
+): Quat {
+  const result = current.clone().normalize()
+  if (Number.isFinite(horizontalDegrees) && horizontalDegrees !== 0) {
+    const yaw = new Quat().setFromAxisAngle(WORLD_UP, horizontalDegrees)
+    result.mul2(yaw, result).normalize()
+  }
+  if (Number.isFinite(verticalDegrees) && verticalDegrees !== 0) {
+    const right = result.transformVector(BASE_RIGHT, new Vec3()).normalize()
+    const pitch = new Quat().setFromAxisAngle(right, verticalDegrees)
+    result.mul2(pitch, result).normalize()
+  }
+  return result
+}
+
+export function orbitFrame(
+  target: Vec3,
+  distance: number,
+  orientation: Quat,
+): OrbitFrame {
+  const safeDistance = Number.isFinite(distance)
+    ? Math.min(Math.max(distance, MIN_DISTANCE), MAX_DISTANCE)
+    : MIN_DISTANCE
+  const rotation = orientation.clone().normalize()
+  const offset = rotation.transformVector(BASE_OFFSET, new Vec3()).mulScalar(safeDistance)
+  return {
+    position: target.clone().add(offset),
+    right: rotation.transformVector(BASE_RIGHT, new Vec3()).normalize(),
+    up: rotation.transformVector(BASE_UP, new Vec3()).normalize(),
+  }
+}
 
 export class PlayCanvasCameraController {
   private readonly canvas: HTMLCanvasElement
   private readonly camera: Entity
   private readonly requestRender: () => void
   private readonly target = new Vec3()
+  private orbitOrientation = new Quat()
   private pointerId: number | null = null
   private pointerMode: PointerMode = 'orbit'
   private lastX = 0
   private lastY = 0
-  private yaw = 0
-  private pitch = 0
   private distance = 3
   private enabled = false
   private disposed = false
@@ -49,12 +92,13 @@ export class PlayCanvasCameraController {
     return this.enabled && !this.disposed
   }
 
-  reset(target: Vec3, distance: number, yaw = 0, pitch = 0): void {
+  reset(target: Vec3, distance: number): void {
     if (this.disposed) return
     this.target.copy(target)
-    this.distance = Math.min(Math.max(distance, MIN_DISTANCE), MAX_DISTANCE)
-    this.yaw = yaw
-    this.pitch = Math.min(Math.max(pitch, -MAX_PITCH), MAX_PITCH)
+    this.distance = Number.isFinite(distance)
+      ? Math.min(Math.max(distance, MIN_DISTANCE), MAX_DISTANCE)
+      : MIN_DISTANCE
+    this.orbitOrientation.set(0, 0, 0, 1)
     this.applyPose()
   }
 
@@ -90,15 +134,16 @@ export class PlayCanvasCameraController {
     this.lastY = event.clientY
 
     if (this.pointerMode === 'orbit') {
-      this.yaw -= dx * ROTATE_SPEED
-      this.pitch = Math.min(Math.max(this.pitch - dy * ROTATE_SPEED, -MAX_PITCH), MAX_PITCH)
+      this.orbitOrientation = rotateOrbitQuaternion(
+        this.orbitOrientation,
+        -dx * ROTATE_SPEED_DEGREES,
+        -dy * ROTATE_SPEED_DEGREES,
+      )
     } else {
       const scale = this.distance * PAN_SPEED
-      const rightX = Math.cos(this.yaw)
-      const rightZ = -Math.sin(this.yaw)
-      this.target.x -= rightX * dx * scale
-      this.target.z -= rightZ * dx * scale
-      this.target.y += dy * scale
+      const frame = orbitFrame(this.target, this.distance, this.orbitOrientation)
+      this.target.add(frame.right.mulScalar(-dx * scale))
+      this.target.add(frame.up.mulScalar(dy * scale))
     }
 
     this.applyPose()
@@ -125,14 +170,10 @@ export class PlayCanvasCameraController {
   }
 
   private applyPose(): void {
-    const horizontalDistance = Math.cos(this.pitch) * this.distance
-    const position = new Vec3(
-      this.target.x + Math.sin(this.yaw) * horizontalDistance,
-      this.target.y + Math.sin(this.pitch) * this.distance,
-      this.target.z + Math.cos(this.yaw) * horizontalDistance,
-    )
-    this.camera.setPosition(position)
-    this.camera.lookAt(this.target)
+    if (this.disposed) return
+    const frame = orbitFrame(this.target, this.distance, this.orbitOrientation)
+    this.camera.setPosition(frame.position)
+    this.camera.lookAt(this.target, frame.up)
     this.requestRender()
   }
 

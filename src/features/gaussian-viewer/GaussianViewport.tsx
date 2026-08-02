@@ -17,15 +17,33 @@ export function GaussianViewport() {
     containerRef,
     canvasRef,
     viewerState,
+    desktop,
+    scenes,
+    currentScene,
+    libraryError,
+    importState,
+    importScene,
+    cancelImport,
+    selectScene,
+    deleteScene,
     reloadScene,
     unloadScene,
     resetCamera,
+    orientationBusy,
+    rotateSceneOrientation,
+    resetSceneOrientation,
   } = useGaussianViewer()
   const { phase, status, message } = viewerState
   const backingWidth = status ? Math.floor(status.width * status.pixelRatio) : 0
   const backingHeight = status ? Math.floor(status.height * status.pixelRatio) : 0
   const scenePhase = status?.scenePhase ?? 'idle'
   const isBusy = scenePhase === 'fetching' || scenePhase === 'parsing' || scenePhase === 'unloading'
+  const importing = ['copying', 'validating', 'committing', 'cancelling'].includes(importState.phase)
+  const canCancelImport = importState.operationId !== null
+    && (importState.phase === 'copying' || importState.phase === 'validating')
+  const importPercent = importState.progress && importState.progress.totalBytes > 0
+    ? Math.round(importState.progress.bytesCopied / importState.progress.totalBytes * 100)
+    : 0
   const statusLabel = scenePhase === 'fetching'
     ? '正在读取 SOG'
     : scenePhase === 'parsing'
@@ -76,7 +94,69 @@ export function GaussianViewport() {
         重置视角
       </button>
     </div>
+    {desktop && currentScene ? <div
+      className="gaussian-viewport__orientation-controls"
+      aria-label="Scene orientation controls"
+    >
+      <span>场景朝向</span>
+      <button type="button" onClick={() => rotateSceneOrientation('x', 90)} disabled={orientationBusy || isBusy || !status?.sceneLoaded}>X +90°</button>
+      <button type="button" onClick={() => rotateSceneOrientation('y', 90)} disabled={orientationBusy || isBusy || !status?.sceneLoaded}>Y +90°</button>
+      <button type="button" onClick={() => rotateSceneOrientation('z', 90)} disabled={orientationBusy || isBusy || !status?.sceneLoaded}>Z +90°</button>
+      <button type="button" onClick={() => rotateSceneOrientation('x', 180)} disabled={orientationBusy || isBusy || !status?.sceneLoaded}>上下翻转</button>
+      <button type="button" onClick={resetSceneOrientation} disabled={orientationBusy || isBusy || !status?.sceneLoaded}>恢复原始</button>
+    </div> : null}
+    <aside className="gaussian-viewport__library" aria-label="Local SOG scenes">
+      <div className="gaussian-viewport__library-header">
+        <strong>本地 SOG 场景</strong>
+        {desktop
+          ? <button type="button" onClick={() => void importScene()} disabled={importing || importState.phase === 'choosing'}>
+              {importState.phase === 'choosing' ? '等待选择…' : '导入 SOG'}
+            </button>
+          : <span>仅桌面应用支持导入</span>}
+      </div>
+      {importing && <div className="gaussian-viewport__import-progress">
+        <div><span>{importState.phase === 'copying' ? '复制' : importState.phase === 'validating' ? '验证' : importState.phase === 'committing' ? '提交' : '正在取消'}</span><b>{importPercent}%</b></div>
+        <progress max="100" value={importPercent}/>
+        <button type="button" onClick={() => void cancelImport()} disabled={!canCancelImport}>取消导入</button>
+      </div>}
+      {(importState.message || importState.error || libraryError) && <p className={importState.error || libraryError ? 'error' : ''}>
+        {importState.error ?? libraryError ?? importState.message}
+      </p>}
+      {desktop && scenes.length === 0
+        ? <div className="gaussian-viewport__empty">尚未导入场景</div>
+        : <div className="gaussian-viewport__scene-list">
+            {scenes.map((scene) => <div className={scene.id === currentScene?.id ? 'current' : ''} key={scene.id}>
+              <button type="button" onClick={() => void selectScene(scene.id)} disabled={importing}>
+                <strong>{scene.displayName}</strong>
+                <small>{formatBytes(scene.byteSize)} · {formatTime(scene.importedAt)} · {scene.sha256.slice(0, 10)}</small>
+              </button>
+              <button
+                type="button"
+                className="danger"
+                disabled={importing}
+                onClick={() => {
+                  if (window.confirm(`确认删除场景“${scene.displayName}”？`)) void deleteScene(scene.id)
+                }}
+                aria-label={`删除 ${scene.displayName}`}
+              >删除</button>
+            </div>)}
+          </div>}
+    </aside>
   </div>
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+}
+
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export default GaussianViewport

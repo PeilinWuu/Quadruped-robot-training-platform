@@ -1,6 +1,6 @@
-# Local Gaussian Splat test asset
+# Local Gaussian Splat development asset
 
-D3B-2 supports one local, bundled SOG file:
+Development mode supports one local, bundled SOG file:
 
 `public/gs/local/test-scene.sog`
 
@@ -9,4 +9,5 @@ D3B-2 supports one local, bundled SOG file:
 - Do not place sensitive people, homes, vehicle plates, credentials, or other private content here.
 - A size of 1–5 MiB is recommended. The runtime rejects files larger than 50 MiB.
 - Do not restore `flowers_1.ply`.
-- Production asset management is outside D3B-2.
+- Production builds disable Vite's default public-directory copy and never package SOG files.
+- Desktop users import SOG files through the native picker; Rust copies them into app-data.

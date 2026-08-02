@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  getSceneAdapter,
+  sceneImportSupported,
+  updateSceneOrientation,
+} from '../../services/scenes/sceneService'
+import type {
+  ImportProgress,
+  OrientationAxis,
+  SceneOrientation,
+  SceneRecord,
+} from '../../services/scenes/types'
+import { rotateOrientation, SceneServiceError } from '../../services/scenes/types'
 import type {
   GaussianViewerState,
   SceneSource,
@@ -6,16 +18,46 @@ import type {
   ViewerRuntimeStatus,
 } from './types'
 
-const TEST_SCENE_SOURCE: SceneSource = {
-  kind: 'public-url',
-  url: `${import.meta.env.BASE_URL}gs/local/test-scene.sog`,
-  displayName: 'test-scene.sog',
-}
+const DEV_TEST_SCENE_SOURCE: SceneSource | null = import.meta.env.DEV
+  ? {
+      kind: 'dev-public-url',
+      url: `${import.meta.env.BASE_URL}gs/local/test-scene.sog`,
+      displayName: 'test-scene.sog',
+      orientation: { quaternion: [0, 0, 1, 0] },
+    }
+  : null
 
 const INITIAL_STATE: GaussianViewerState = {
   phase: 'initializing',
   status: null,
   message: null,
+}
+
+type ImportUiState = {
+  phase: 'idle' | 'choosing' | ImportProgress['phase'] | 'cancelling'
+  progress: ImportProgress | null
+  operationId: string | null
+  message: string | null
+  error: string | null
+}
+
+const INITIAL_IMPORT_STATE: ImportUiState = {
+  phase: 'idle',
+  progress: null,
+  operationId: null,
+  message: null,
+  error: null,
+}
+
+export function sourceFromRecord(scene: SceneRecord): SceneSource {
+  return {
+    kind: 'managed-scene',
+    id: scene.id,
+    localUrl: scene.localUrl,
+    displayName: scene.displayName,
+    byteSize: scene.byteSize,
+    orientation: scene.orientation,
+  }
 }
 
 function stateFromStatus(status: ViewerRuntimeStatus): GaussianViewerState {
@@ -34,7 +76,7 @@ function stateFromStatus(status: ViewerRuntimeStatus): GaussianViewerState {
   }
   if (status.scenePhase === 'error') {
     const message = status.error === 'SCENE_NOT_FOUND'
-      ? '未找到本地测试场景，请放置 public/gs/local/test-scene.sog'
+      ? '场景文件不存在或已失效'
       : status.error === 'LOAD_CANCELLED'
         ? '场景加载已取消'
         : 'SOG 场景加载失败'
@@ -49,26 +91,48 @@ function stateFromStatus(status: ViewerRuntimeStatus): GaussianViewerState {
   return { phase: status.initialized ? 'ready' : 'initializing', status, message: null }
 }
 
+function safeSceneMessage(error: unknown): string {
+  if (error instanceof SceneServiceError) return error.message
+  return '本地场景操作失败'
+}
+
 export function useGaussianViewer() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const runtimeRef = useRef<ViewerRuntime | null>(null)
   const loadAbortRef = useRef<AbortController | null>(null)
   const lifecycleGenerationRef = useRef(0)
+  const mountedRef = useRef(true)
+  const activeSourceRef = useRef<SceneSource | null>(null)
   const [viewerState, setViewerState] = useState<GaussianViewerState>(INITIAL_STATE)
+  const [scenes, setScenes] = useState<SceneRecord[]>([])
+  const [currentScene, setCurrentScene] = useState<SceneRecord | null>(null)
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+  const [orientationBusy, setOrientationBusy] = useState(false)
+  const [importState, setImportState] = useState<ImportUiState>(INITIAL_IMPORT_STATE)
+  const desktop = sceneImportSupported()
 
-  const loadFixedScene = useCallback((
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const loadSceneSource = useCallback((
+    source: SceneSource,
     runtimeOverride?: ViewerRuntime,
     expectedGeneration = lifecycleGenerationRef.current,
   ) => {
     const runtime = runtimeOverride ?? runtimeRef.current
     if (!runtime?.loadScene || runtime.getStatus().fallback) return
+    activeSourceRef.current = source
     loadAbortRef.current?.abort()
     const controller = new AbortController()
     loadAbortRef.current = controller
-    void runtime.loadScene(TEST_SCENE_SOURCE, controller.signal)
+    void runtime.loadScene(source, controller.signal)
       .catch(() => {
-        // Runtime status reports a sanitized loading or cancellation error.
+        // Runtime status reports sanitized loading and cancellation errors.
       })
       .finally(() => {
         if (
@@ -80,27 +144,198 @@ export function useGaussianViewer() {
       })
   }, [])
 
+  const bootstrapScenes = useCallback(async (
+    runtime: ViewerRuntime,
+    expectedGeneration: number,
+  ) => {
+    try {
+      const adapter = await getSceneAdapter()
+      const [nextScenes, nextCurrent] = await Promise.all([
+        adapter.listScenes(),
+        adapter.getCurrentScene(),
+      ])
+      if (!mountedRef.current || expectedGeneration !== lifecycleGenerationRef.current) return
+      setScenes(nextScenes)
+      setCurrentScene(nextCurrent)
+      setLibraryError(null)
+      if (nextCurrent) {
+        loadSceneSource(sourceFromRecord(nextCurrent), runtime, expectedGeneration)
+      } else if (!adapter.desktop && DEV_TEST_SCENE_SOURCE) {
+        loadSceneSource(DEV_TEST_SCENE_SOURCE, runtime, expectedGeneration)
+      }
+    } catch (error: unknown) {
+      if (mountedRef.current && expectedGeneration === lifecycleGenerationRef.current) {
+        setLibraryError(safeSceneMessage(error))
+      }
+    }
+  }, [loadSceneSource])
+
   const reloadScene = useCallback(() => {
-    loadFixedScene()
-  }, [loadFixedScene])
+    const source = activeSourceRef.current
+    if (source) loadSceneSource(source)
+  }, [loadSceneSource])
 
   const abortCurrentLoad = useCallback(() => {
     loadAbortRef.current?.abort()
     loadAbortRef.current = null
   }, [])
 
-  const unloadScene = useCallback(() => {
+  const unloadSceneAsync = useCallback(async () => {
     abortCurrentLoad()
     const runtime = runtimeRef.current
     if (!runtime?.unloadScene) return
-    void runtime.unloadScene().catch(() => {
+    try {
+      await runtime.unloadScene()
+    } catch {
       // Runtime status remains authoritative for unload errors.
-    })
+    }
   }, [abortCurrentLoad])
+
+  const unloadScene = useCallback(() => {
+    void unloadSceneAsync()
+  }, [unloadSceneAsync])
 
   const resetCamera = useCallback(() => {
     runtimeRef.current?.resetCamera?.()
   }, [])
+
+  const persistOrientation = useCallback(async (nextOrientation: SceneOrientation) => {
+    const scene = currentScene
+    const runtime = runtimeRef.current
+    if (!scene || !runtime?.updateOrientation || orientationBusy) return
+    const previousOrientation = scene.orientation
+    setOrientationBusy(true)
+    setLibraryError(null)
+    try {
+      runtime.updateOrientation(nextOrientation)
+      const updated = await updateSceneOrientation(scene.id, nextOrientation.quaternion)
+      if (!mountedRef.current) return
+      setCurrentScene(updated)
+      setScenes((current) => current.map((item) => item.id === updated.id ? updated : item))
+      if (activeSourceRef.current?.kind === 'managed-scene'
+        && activeSourceRef.current.id === updated.id) {
+        activeSourceRef.current = sourceFromRecord(updated)
+      }
+      setImportState({ ...INITIAL_IMPORT_STATE, message: '场景朝向已保存' })
+    } catch (error: unknown) {
+      try {
+        runtime.updateOrientation(previousOrientation)
+      } catch {
+        // Runtime status and the sanitized persistence error remain authoritative.
+      }
+      if (mountedRef.current) setLibraryError(safeSceneMessage(error))
+    } finally {
+      if (mountedRef.current) setOrientationBusy(false)
+    }
+  }, [currentScene, orientationBusy])
+
+  const rotateSceneOrientation = useCallback((axis: OrientationAxis, degrees: number) => {
+    if (!currentScene) return
+    void persistOrientation(rotateOrientation(currentScene.orientation, axis, degrees))
+  }, [currentScene, persistOrientation])
+
+  const resetSceneOrientation = useCallback(() => {
+    void persistOrientation({ quaternion: [0, 0, 0, 1] })
+  }, [persistOrientation])
+
+  const refreshLibrary = useCallback(async () => {
+    const adapter = await getSceneAdapter()
+    const [nextScenes, nextCurrent] = await Promise.all([
+      adapter.listScenes(),
+      adapter.getCurrentScene(),
+    ])
+    if (!mountedRef.current) return
+    setScenes(nextScenes)
+    setCurrentScene(nextCurrent)
+  }, [])
+
+  const importScene = useCallback(async () => {
+    setImportState({ ...INITIAL_IMPORT_STATE, phase: 'choosing' })
+    const existingIds = new Set(scenes.map((scene) => scene.id))
+    try {
+      const adapter = await getSceneAdapter()
+      const result = await adapter.chooseAndImportScene({
+        onOperationStart: (operationId) => {
+          if (mountedRef.current) {
+            setImportState({
+              phase: 'copying',
+              progress: null,
+              operationId,
+              message: null,
+              error: null,
+            })
+          }
+        },
+        onProgress: (progress) => {
+          if (mountedRef.current) {
+            setImportState((current) => ({ ...current, phase: progress.phase, progress }))
+          }
+        },
+        onOperationEnd: () => undefined,
+      })
+      if (!mountedRef.current) return
+      if (result.status === 'cancelled') {
+        setImportState({ ...INITIAL_IMPORT_STATE, message: '已取消选择' })
+        return
+      }
+      await refreshLibrary()
+      loadSceneSource(sourceFromRecord(result.scene))
+      setImportState({
+        ...INITIAL_IMPORT_STATE,
+        message: existingIds.has(result.scene.id)
+          ? '场景已存在，已切换到该场景'
+          : 'SOG 场景导入完成',
+      })
+    } catch (error: unknown) {
+      if (mountedRef.current) {
+        setImportState({ ...INITIAL_IMPORT_STATE, error: safeSceneMessage(error) })
+      }
+    }
+  }, [loadSceneSource, refreshLibrary, scenes])
+
+  const cancelImport = useCallback(async () => {
+    const operationId = importState.operationId
+    if (!operationId) return
+    setImportState((current) => ({ ...current, phase: 'cancelling' }))
+    try {
+      const adapter = await getSceneAdapter()
+      await adapter.cancelImport(operationId)
+    } catch (error: unknown) {
+      if (mountedRef.current) {
+        setImportState((current) => ({ ...current, error: safeSceneMessage(error) }))
+      }
+    }
+  }, [importState.operationId])
+
+  const selectScene = useCallback(async (sceneId: string) => {
+    try {
+      const adapter = await getSceneAdapter()
+      const scene = await adapter.setCurrentScene(sceneId)
+      if (!mountedRef.current) return
+      setCurrentScene(scene)
+      setLibraryError(null)
+      loadSceneSource(sourceFromRecord(scene))
+    } catch (error: unknown) {
+      if (mountedRef.current) setLibraryError(safeSceneMessage(error))
+    }
+  }, [loadSceneSource])
+
+  const deleteScene = useCallback(async (sceneId: string) => {
+    try {
+      if (currentScene?.id === sceneId) {
+        await unloadSceneAsync()
+        activeSourceRef.current = null
+      }
+      const adapter = await getSceneAdapter()
+      await adapter.deleteScene(sceneId)
+      await refreshLibrary()
+      if (mountedRef.current) {
+        setImportState({ ...INITIAL_IMPORT_STATE, message: '场景已删除' })
+      }
+    } catch (error: unknown) {
+      if (mountedRef.current) setLibraryError(safeSceneMessage(error))
+    }
+  }, [currentScene?.id, refreshLibrary, unloadSceneAsync])
 
   const clearRuntimeRef = useCallback((expectedRuntime: ViewerRuntime | null) => {
     if (runtimeRef.current === expectedRuntime) runtimeRef.current = null
@@ -204,7 +439,7 @@ export function useGaussianViewer() {
         if (document.visibilityState === 'hidden') runtime.pause()
         else runtime.start()
         reportStatus(runtime.getStatus())
-        loadFixedScene(runtime, lifecycleGeneration)
+        void bootstrapScenes(runtime, lifecycleGeneration)
       })
       .catch(() => {
         if (!disposed) {
@@ -226,14 +461,26 @@ export function useGaussianViewer() {
       clearRuntimeRef(runtime)
       runtime = null
     }
-  }, [abortCurrentLoad, clearRuntimeRef, loadFixedScene])
+  }, [abortCurrentLoad, bootstrapScenes, clearRuntimeRef])
 
   return {
     containerRef,
     canvasRef,
     viewerState,
+    desktop,
+    scenes,
+    currentScene,
+    libraryError,
+    importState,
+    importScene,
+    cancelImport,
+    selectScene,
+    deleteScene,
     reloadScene,
     unloadScene,
     resetCamera,
+    orientationBusy,
+    rotateSceneOrientation,
+    resetSceneOrientation,
   }
 }

@@ -1,10 +1,24 @@
 export type ViewerBackend = 'WebGL2 Probe' | 'PlayCanvas WebGL2'
 
-export type SceneSource = {
-  kind: 'public-url'
-  url: string
-  displayName: string
-}
+import type { SceneOrientation } from '../../services/scenes/types'
+
+export const MAX_SCENE_BYTES = 50 * 1024 * 1024
+
+export type SceneSource =
+  | {
+      kind: 'managed-scene'
+      id: string
+      localUrl: string
+      displayName: string
+      byteSize: number
+      orientation?: SceneOrientation
+    }
+  | {
+      kind: 'dev-public-url'
+      url: string
+      displayName: string
+      orientation?: SceneOrientation
+    }
 
 export type SceneLoadPhase =
   | 'idle'
@@ -48,6 +62,7 @@ export interface ViewerRuntime {
     signal?: AbortSignal,
   ): Promise<SceneLoadResult>
   unloadScene?(): Promise<void>
+  updateOrientation?(orientation: SceneOrientation): void
   resetCamera?(): void
   dispose(): void
   getStatus(): ViewerRuntimeStatus

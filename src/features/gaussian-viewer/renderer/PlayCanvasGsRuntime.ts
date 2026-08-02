@@ -5,10 +5,13 @@ import {
   Entity,
   FILLMODE_NONE,
   GSplatResourceBase,
+  Quat,
   RESOLUTION_FIXED,
   Vec3,
 } from 'playcanvas'
 import type { GSplatComponentSystem } from 'playcanvas'
+import { normalizeQuaternion } from '../../../services/scenes/types'
+import type { SceneOrientation } from '../../../services/scenes/types'
 import type {
   SceneLoadResult,
   SceneSource,
@@ -16,9 +19,9 @@ import type {
   ViewerRuntimeOptions,
   ViewerRuntimeStatus,
 } from '../types'
+import { MAX_SCENE_BYTES } from '../types'
 import { PlayCanvasCameraController } from './PlayCanvasCameraController'
 
-const MAX_SCENE_BYTES = 50 * 1024 * 1024
 const STATUS_SAMPLE_INTERVAL_MS = 750
 const DEFAULT_TARGET = new Vec3(0, 0, 0)
 const DEFAULT_DISTANCE = 3
@@ -39,6 +42,39 @@ function abortError(): DOMException {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+export function sceneSourceUrl(source: SceneSource): string {
+  if (source.kind === 'dev-public-url') {
+    if (!import.meta.env.DEV) throw new SceneLoadError('UNSUPPORTED_SCENE_SOURCE')
+    const resolved = new URL(source.url, window.location.href)
+    if (
+      resolved.origin !== window.location.origin
+      || !resolved.pathname.toLowerCase().endsWith('.sog')
+      || resolved.search !== ''
+      || resolved.hash !== ''
+    ) {
+      throw new SceneLoadError('REMOTE_SCENE_BLOCKED')
+    }
+    return resolved.toString()
+  }
+
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  if (!uuid.test(source.id)) throw new SceneLoadError('UNSUPPORTED_SCENE_SOURCE')
+  const resolved = new URL(source.localUrl)
+  const isWindowsScene = resolved.protocol === 'http:'
+    && resolved.hostname === 'scene.localhost'
+    && resolved.port === ''
+  const isNativeScene = resolved.protocol === 'scene:' && resolved.hostname === 'localhost'
+  if (
+    (!isWindowsScene && !isNativeScene)
+    || resolved.pathname !== `/${source.id}/scene.sog`
+    || resolved.search !== ''
+    || resolved.hash !== ''
+  ) {
+    throw new SceneLoadError('REMOTE_SCENE_BLOCKED')
+  }
+  return source.localUrl
 }
 
 export class PlayCanvasGsRuntime implements ViewerRuntime {
@@ -213,7 +249,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.emitStatus()
 
     try {
-      const response = await fetch(source.url, { signal })
+      const response = await fetch(this.sourceUrl(source), { signal })
       if (response.status === 404) throw new SceneLoadError('SCENE_NOT_FOUND')
       if (!response.ok) throw new SceneLoadError('SCENE_FETCH_FAILED')
 
@@ -223,6 +259,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       }
 
       const blob = await response.blob()
+      if (blob.size === 0) throw new SceneLoadError('SCENE_PARSE_FAILED')
       if (blob.size > MAX_SCENE_BYTES) throw new SceneLoadError('SCENE_TOO_LARGE')
       if (signal?.aborted || generation !== this.loadGeneration) throw abortError()
 
@@ -295,6 +332,17 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.cameraController?.reset(this.initialTarget, this.initialDistance)
   }
 
+  updateOrientation(orientation: SceneOrientation): void {
+    if (this.disposed || !this.app) throw new SceneLoadError('RUNTIME_DISPOSED')
+    if (!this.sceneEntity || !this.sceneAsset || !this.status.sceneLoaded) {
+      throw new SceneLoadError('SCENE_NOT_READY')
+    }
+    const quaternion = normalizeQuaternion(orientation.quaternion)
+    this.sceneEntity.setLocalRotation(new Quat(...quaternion))
+    this.frameLoadedScene(this.sceneAsset)
+    this.requestRender()
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -363,7 +411,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
     const asset = new Asset(source.displayName, 'gsplat', {
       url: objectUrl,
-      filename: 'test-scene.sog',
+      filename: 'scene.sog',
       size: blob.size,
       contents,
     })
@@ -433,9 +481,10 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
         try {
           const entity = new Entity('Gaussian SOG Scene', app)
-          // D3B-2 uses the fixed toy-cat test asset, whose documented pose is rotated 180° on Z.
-          // A future asset pipeline must replace this with per-asset orientation metadata.
-          entity.setEulerAngles(0, 0, 180)
+          const orientation = normalizeQuaternion(
+            source.orientation?.quaternion ?? [0, 0, 0, 1],
+          )
+          entity.setLocalRotation(new Quat(...orientation))
           entity.addComponent('gsplat', { asset })
           app.root.addChild(entity)
           this.sceneEntity = entity
@@ -541,13 +590,11 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   private validateSource(source: SceneSource): void {
-    if (source.kind !== 'public-url' || !source.url.toLowerCase().endsWith('.sog')) {
-      throw new SceneLoadError('UNSUPPORTED_SCENE_SOURCE')
-    }
-    const resolved = new URL(source.url, window.location.href)
-    if (resolved.origin !== window.location.origin) {
-      throw new SceneLoadError('REMOTE_SCENE_BLOCKED')
-    }
+    sceneSourceUrl(source)
+  }
+
+  private sourceUrl(source: SceneSource): string {
+    return sceneSourceUrl(source)
   }
 
   private updateControlsEnabled(): void {
