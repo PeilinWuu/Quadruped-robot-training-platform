@@ -11,13 +11,16 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint src server",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test": "node --import tsx --test server/*.test.ts",
+    "test": "npm run test:node && npm run test:frontend",
+    "test:node": "node --import tsx --test server/*.test.ts",
+    "test:frontend": "vitest run src/services/scenes",
     "preview": "vite preview",
     "tauri": "tauri"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "antd": "^6.5.0",
     "cookie-parser": "^1.4.7",
     "dayjs": "^1.11.21",
@@ -25,6 +28,7 @@
     "echarts-for-react": "^3.0.6",
     "express": "^5.2.1",
     "lucide-react": "^1.24.0",
+    "playcanvas": "2.21.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "zustand": "^5.0.14"
@@ -38,9 +42,11 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^10.0.3",
+    "jsdom": "^30.0.1",
     "oxlint": "^1.71.0",
     "tsx": "^4.23.0",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
   }
 }
