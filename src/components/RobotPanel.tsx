@@ -1,7 +1,36 @@
-import { BatteryCharging, Bot, Cpu, Gauge, MapPin, RadioTower } from 'lucide-react'
-import { Progress, Select } from 'antd'
+import { Bot, Cpu, Gauge, RadioTower } from 'lucide-react'
 import { Panel } from './Panel'
-import { useAppStore } from '../store/useAppStore'
-import type { ControlMode } from '../types'
+import { useAppStore, type SimulationUiState } from '../store/useAppStore'
 
-export function RobotPanel({ notify }: { notify: (text: string) => void }) { const { robot, setControlMode } = useAppStore(); if (!robot) return <Panel title="机器人状态"><div className="skeleton-line" /></Panel>; const change = (mode: ControlMode) => { setControlMode(mode); notify(`控制模式已切换为${mode === 'autonomous' ? '自主' : mode === 'manual' ? '手动' : '辅助'}模式（Mock）`) }; return <Panel title="机器人状态" extra={<span className="online"><i/> ONLINE</span>}><div className="robot-status"><div className="robot-model"><div className="model-body"><Bot size={38}/></div><span>Q-FIRE 01</span></div><div className="status-list"><div><BatteryCharging size={14}/><span>电量</span><Progress percent={robot.battery} size="small" showInfo={false} strokeColor="#43d69b"/><b>{robot.battery}%</b></div><div><Cpu size={14}/><span>CPU 温度</span><b>{robot.cpuTemp}°C</b></div><div><RadioTower size={14}/><span>关节状态</span><b className="good">{robot.jointStatus}</b></div><div><Gauge size={14}/><span>步态 / 速度</span><b>{robot.gait} · {robot.speed} m/s</b></div><div><MapPin size={14}/><span>当前位置</span><b>({robot.position.join(', ')})</b></div></div></div><div className="control-mode"><span>控制模式</span><Select value={robot.controlMode} onChange={change} options={[{ value: 'autonomous', label: '自主模式' }, { value: 'assisted', label: '辅助模式' }, { value: 'manual', label: '手动模式' }]} /></div></Panel> }
+const number = (value: number) => value.toFixed(3)
+
+export function RobotPanel() {
+  const simulation = useAppStore((state) => state.simulation)
+  return <RobotPanelContent simulation={simulation}/>
+}
+
+export function RobotPanelContent({ simulation }: { simulation: SimulationUiState }) {
+  const pose = simulation.latestPose
+  const connected = simulation.processState === 'ready'
+  const updated = pose ? new Date(pose.updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '暂未接入'
+  return <Panel title="机器人状态" extra={<span className={connected ? 'online' : 'offline'}><i/>{connected ? ' SIDECAR READY' : ' OFFLINE'}</span>}>
+    <div className="robot-live-summary">
+      <div className="robot-model"><div className="model-body"><Bot size={38}/></div><span>{simulation.model?.modelId ?? '暂未加载模型'}</span></div>
+      <dl>
+        <div><dt>Sidecar</dt><dd>{simulation.processState}</dd></div>
+        <div><dt>Simulation</dt><dd>{simulation.simulationState}</dd></div>
+        <div><dt>模型 ID</dt><dd>{simulation.model?.modelId ?? '暂未接入'}</dd></div>
+        <div><dt>仿真时间</dt><dd>{pose ? `${number(pose.simulationTime)} s` : '暂未接入'}</dd></div>
+        <div><dt>倍速</dt><dd>{simulation.speed.toFixed(2)}×</dd></div>
+        <div><dt>Pose sequence</dt><dd>{pose?.sequence ?? '暂未接入'}</dd></div>
+        <div><dt>更新时间</dt><dd>{updated}</dd></div>
+      </dl>
+    </div>
+    <div className="robot-pose-grid">
+      <section><h4><Gauge size={13}/>根节点位置</h4><p>{pose ? `X ${number(pose.rootPosition[0])} · Y ${number(pose.rootPosition[1])} · Z ${number(pose.rootPosition[2])}` : '暂未接入'}</p></section>
+      <section><h4><RadioTower size={13}/>根节点朝向 [x, y, z, w]</h4><p>{pose ? pose.rootOrientation.map(number).join(', ') : '暂未接入'}</p></section>
+    </div>
+    <section className="robot-joints"><h4>关节位置 {pose ? `${pose.joints.length}/12` : ''}</h4><div>{pose?.joints.map((joint) => <span key={joint.name}><i>{joint.name}</i><b>{number(joint.position)} rad</b></span>) ?? <p>暂未接入</p>}</div></section>
+    <section className="robot-unavailable"><h4><Cpu size={13}/>尚未接入的真实遥测</h4><p>电池、CPU 温度、网络信号、真实步态、传感器状态、Actuator telemetry：<b>暂未接入</b></p></section>
+  </Panel>
+}

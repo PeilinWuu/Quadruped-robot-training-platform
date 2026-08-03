@@ -1,24 +1,197 @@
 import { create } from 'zustand'
-import type { ControlMode, EnvironmentParams, RobotState, Scene, SensorSnapshot, SimulationStatus, TrainingMetrics, TrainingTask } from '../types'
+import type {
+  ControlMode, EnvironmentParams, RobotState, Scene, SensorSnapshot,
+  SimulationStatus as DashboardSimulationStatus, TrainingMetrics, TrainingTask,
+} from '../types'
 import { services } from '../services'
+import type {
+  JointPose, ModelMetadata, RobotPose, SimulationEvent, SimulationProcessState,
+  SimulationState, SimulationStatus,
+} from '../services/simulation/types'
 
-interface AppState {
-  scenes: Scene[]; activeSceneId: string; status: SimulationStatus; speed: number; activeSensor: string; elapsed: number
-  robot: RobotState | null; sensor: SensorSnapshot | null; task: TrainingTask | null; metrics: TrainingMetrics[]
-  initialize: () => Promise<void>; selectScene: (id: string) => void; updateEnvironment: (key: keyof EnvironmentParams, value: number) => void
-  setStatus: (status: SimulationStatus) => void; setSpeed: (speed: number) => void; setSensor: (sensor: string) => void; setControlMode: (mode: ControlMode) => void; tick: () => void; appendMetrics: () => void
+export interface SimulationPoseSummary {
+  sequence: number
+  simulationTime: number
+  rootPosition: [number, number, number]
+  rootOrientation: [number, number, number, number]
+  joints: JointPose[]
+  updatedAt: number
 }
 
-// 页面组件只读写 store，由 store 通过统一 services 出口获取数据，避免业务逻辑散落在组件中。
-export const useAppStore = create<AppState>((set) => ({
-  scenes: [], activeSceneId: '', status: 'running', speed: 1, activeSensor: 'all', elapsed: 765, robot: null, sensor: null, task: null, metrics: [],
-  // 各面板初始化互不依赖，并行请求可以减少首屏等待时间。
-  initialize: async () => { const [sceneResult, robotResult, sensorResult, taskResult, metricsResult] = await Promise.all([services.scene.list(), services.robot.getState(), services.sensor.getSnapshot(), services.training.getTask(), services.training.getMetrics()]); set({ scenes: sceneResult.data, activeSceneId: sceneResult.data[0]?.id ?? '', robot: robotResult.data, sensor: sensorResult.data, task: taskResult.data, metrics: metricsResult.data }) },
-  selectScene: (id) => set({ activeSceneId: id }),
-  updateEnvironment: (key, value) => set((state) => ({ scenes: state.scenes.map((scene) => scene.id === state.activeSceneId ? { ...scene, environment: { ...scene.environment, [key]: value } } : scene) })),
-  setStatus: (status) => set({ status }), setSpeed: (speed) => set({ speed }), setSensor: (activeSensor) => set({ activeSensor }),
-  setControlMode: (controlMode) => set((state) => ({ robot: state.robot ? { ...state.robot, controlMode } : null })),
-  tick: () => set((state) => state.status === 'running' ? { elapsed: state.elapsed + state.speed } : {}),
-  // 仅用于 GUI 演示的曲线模拟；真实训练接入后由 TrainingService 推送的指标替换。
-  appendMetrics: () => set((state) => { if (state.status !== 'running' || !state.metrics.length) return {}; const last = state.metrics[state.metrics.length - 1]; const next: TrainingMetrics = { episode: last.episode + 5, reward: Math.min(300, last.reward + (Math.random() - .38) * 18), successRate: Math.min(98, Math.max(0, last.successRate + (Math.random() - .4) * 3)), policyLoss: Math.max(.005, last.policyLoss * (.97 + Math.random() * .03)), valueLoss: Math.max(.008, last.valueLoss * (.965 + Math.random() * .04)) }; return { metrics: [...state.metrics.slice(-44), next] } }),
-}))
+export interface SimulationUiState {
+  desktop: boolean
+  processState: SimulationProcessState
+  simulationState: SimulationState
+  model: ModelMetadata | null
+  speed: number
+  lastError: string | null
+  latestPose: SimulationPoseSummary | null
+  busy: boolean
+}
+
+export interface SimulationActionResult { ok: boolean; error?: string }
+
+interface AppState {
+  scenes: Scene[]; activeSceneId: string; status: DashboardSimulationStatus; speed: number; activeSensor: string; elapsed: number
+  robot: RobotState | null; sensor: SensorSnapshot | null; task: TrainingTask | null; metrics: TrainingMetrics[]
+  simulation: SimulationUiState
+  initialize: () => Promise<void>; selectScene: (id: string) => void; updateEnvironment: (key: keyof EnvironmentParams, value: number) => void
+  setStatus: (status: DashboardSimulationStatus) => void; setSpeed: (speed: number) => void; setSensor: (sensor: string) => void; setControlMode: (mode: ControlMode) => void; tick: () => void; appendMetrics: () => void
+  initializeSimulation: () => Promise<void>; refreshSimulation: () => Promise<void>
+  startSimulation: () => Promise<SimulationActionResult>; pauseSimulation: () => Promise<SimulationActionResult>
+  resumeSimulation: () => Promise<SimulationActionResult>; stepSimulation: () => Promise<SimulationActionResult>
+  resetSimulation: () => Promise<SimulationActionResult>; stopSimulation: () => Promise<SimulationActionResult>
+  setSimulationSpeed: (speed: number) => Promise<SimulationActionResult>; shutdownSimulation: () => Promise<void>
+}
+
+const INITIAL_SIMULATION: SimulationUiState = {
+  desktop: services.simulation.desktop,
+  processState: services.simulation.desktop ? 'idle' : 'unavailable',
+  simulationState: 'unloaded', model: null, speed: 1, lastError: null,
+  latestPose: null, busy: false,
+}
+
+let eventCleanup: (() => void) | null = null
+let poseTimer: number | null = null
+let pendingPose: RobotPose | null = null
+let lastPoseSummaryAt = 0
+
+function safeSimulationError(error: unknown): string {
+  if (error instanceof Error && (error.message.includes('桌面版') || error.message.includes('0.25'))) {
+    return error.message
+  }
+  return '仿真操作失败，请检查桌面仿真服务后重试'
+}
+
+function statusPatch(status: SimulationStatus): Partial<SimulationUiState> {
+  return {
+    processState: status.state,
+    simulationState: status.simulationState,
+    model: status.model,
+    speed: status.speed,
+    lastError: status.error ? '仿真服务报告错误，请重试或重新启动仿真' : null,
+  }
+}
+
+// 页面组件只读写 store；完整 60Hz Pose 由 simulationService 直接转发给 Viewer。
+export const useAppStore = create<AppState>((set, get) => {
+  const runSimulationAction = async (
+    operation: () => Promise<SimulationStatus>,
+  ): Promise<SimulationActionResult> => {
+    if (get().simulation.busy) return { ok: false, error: '仿真操作正在进行，请稍候' }
+    set((state) => ({ simulation: { ...state.simulation, busy: true, lastError: null } }))
+    try {
+      ensureSimulationBridge()
+      const status = await operation()
+      set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), busy: false } }))
+      return { ok: true }
+    } catch (error: unknown) {
+      const message = safeSimulationError(error)
+      set((state) => ({ simulation: { ...state.simulation, busy: false, lastError: message } }))
+      return { ok: false, error: message }
+    }
+  }
+
+  return {
+    scenes: [], activeSceneId: '', status: 'running', speed: 1, activeSensor: 'all', elapsed: 765,
+    robot: null, sensor: null, task: null, metrics: [], simulation: INITIAL_SIMULATION,
+    initialize: async () => {
+      const [sceneResult, robotResult, sensorResult, taskResult, metricsResult] = await Promise.all([
+        services.scene.list(), services.robot.getState(), services.sensor.getSnapshot(),
+        services.training.getTask(), services.training.getMetrics(),
+      ])
+      set({ scenes: sceneResult.data, activeSceneId: sceneResult.data[0]?.id ?? '', robot: robotResult.data, sensor: sensorResult.data, task: taskResult.data, metrics: metricsResult.data })
+    },
+    selectScene: (id) => set({ activeSceneId: id }),
+    updateEnvironment: (key, value) => set((state) => ({ scenes: state.scenes.map((scene) => scene.id === state.activeSceneId ? { ...scene, environment: { ...scene.environment, [key]: value } } : scene) })),
+    setStatus: (status) => set({ status }), setSpeed: (speed) => set({ speed }), setSensor: (activeSensor) => set({ activeSensor }),
+    setControlMode: (controlMode) => set((state) => ({ robot: state.robot ? { ...state.robot, controlMode } : null })),
+    tick: () => set((state) => state.status === 'running' ? { elapsed: state.elapsed + state.speed } : {}),
+    appendMetrics: () => set((state) => {
+      if (state.status !== 'running' || !state.metrics.length) return {}
+      const last = state.metrics[state.metrics.length - 1]
+      const next: TrainingMetrics = { episode: last.episode + 5, reward: Math.min(300, last.reward + (Math.random() - .38) * 18), successRate: Math.min(98, Math.max(0, last.successRate + (Math.random() - .4) * 3)), policyLoss: Math.max(.005, last.policyLoss * (.97 + Math.random() * .03)), valueLoss: Math.max(.008, last.valueLoss * (.965 + Math.random() * .04)) }
+      return { metrics: [...state.metrics.slice(-44), next] }
+    }),
+    initializeSimulation: async () => {
+      ensureSimulationBridge()
+      await get().refreshSimulation()
+    },
+    refreshSimulation: async () => {
+      try {
+        const status = await services.simulation.getStatus()
+        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status) } }))
+      } catch { /* Explicit actions surface sanitized errors. */ }
+    },
+    startSimulation: () => runSimulationAction(() => services.simulation.start()),
+    pauseSimulation: () => runSimulationAction(() => services.simulation.pause()),
+    resumeSimulation: () => runSimulationAction(() => services.simulation.resume()),
+    stepSimulation: () => runSimulationAction(() => services.simulation.step()),
+    resetSimulation: () => runSimulationAction(() => services.simulation.reset()),
+    stopSimulation: () => runSimulationAction(() => services.simulation.stop()),
+    setSimulationSpeed: (nextSpeed) => runSimulationAction(() => services.simulation.setSpeed(nextSpeed)),
+    shutdownSimulation: async () => {
+      clearSimulationBridge()
+      try {
+        const status = await services.simulation.shutdown()
+        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, busy: false } }))
+      } catch {
+        set((state) => ({ simulation: { ...state.simulation, processState: 'failed', simulationState: 'unloaded', latestPose: null, busy: false, lastError: '仿真服务清理失败，应用退出时将执行进程级清理' } }))
+      }
+    },
+  }
+})
+
+function ensureSimulationBridge(): void {
+  if (eventCleanup) return
+  eventCleanup = services.simulation.onEvent(handleSimulationEvent)
+}
+
+function clearSimulationBridge(): void {
+  eventCleanup?.()
+  eventCleanup = null
+  pendingPose = null
+  if (poseTimer !== null) globalThis.clearTimeout(poseTimer)
+  poseTimer = null
+  lastPoseSummaryAt = 0
+}
+
+function handleSimulationEvent(event: SimulationEvent): void {
+  if (event.type === 'pose') {
+    pendingPose = event.payload
+    const elapsed = performance.now() - lastPoseSummaryAt
+    if (elapsed >= 100) flushPoseSummary()
+    else if (poseTimer === null) poseTimer = globalThis.setTimeout(flushPoseSummary, 100 - elapsed)
+    return
+  }
+  if (event.type === 'model_loaded') {
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, model: event.payload } }))
+  } else if (event.type === 'state_changed') {
+    useAppStore.setState((state) => ({ simulation: {
+      ...state.simulation,
+      simulationState: event.payload.state,
+      speed: event.payload.speed ?? state.simulation.speed,
+    } }))
+  } else if (event.type === 'error') {
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, lastError: '仿真服务报告错误，请重试或重新启动仿真' } }))
+  }
+}
+
+function flushPoseSummary(): void {
+  poseTimer = null
+  const pose = pendingPose
+  pendingPose = null
+  if (!pose) return
+  lastPoseSummaryAt = performance.now()
+  useAppStore.setState((state) => ({ simulation: {
+    ...state.simulation,
+    latestPose: {
+      sequence: pose.sequence,
+      simulationTime: pose.simulationTime,
+      rootPosition: [...pose.rootPosition],
+      rootOrientation: [...pose.rootOrientation],
+      joints: pose.joints.map((joint) => ({ ...joint })),
+      updatedAt: pose.wallTime,
+    },
+  } }))
+}

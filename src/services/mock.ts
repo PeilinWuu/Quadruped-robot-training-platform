@@ -1,4 +1,4 @@
-import type { RobotService, SceneService, SensorService, SimulationService, TrainingService } from './contracts'
+import type { RobotService, SceneService, SensorService, TrainingService } from './contracts'
 import type { EnvironmentParams, RobotState, Scene, SensorSnapshot, TrainingMetrics, TrainingTask } from '../types'
 
 // 这些数据只用于界面开发和演示，不代表真实仿真或机器人返回值。
@@ -15,7 +15,6 @@ const task: TrainingTask = { id: 'search-01', name: '搜索目标并返回营地
 
 const wait = <T>(data: T) => Promise.resolve({ data, source: 'mock' as const })
 export const mockSceneService: SceneService = { list: () => wait(scenes), get: (id) => wait(scenes.find((item) => item.id === id) ?? scenes[0]), updateEnvironment: (_id, params: EnvironmentParams) => wait(params) }
-export const mockSimulationService: SimulationService = { start: () => wait(undefined), pause: () => wait(undefined), stop: () => wait(undefined), reset: () => wait(undefined), setSpeed: (speed) => wait(speed) }
 export const mockTrainingService: TrainingService = { getTask: () => wait(task), getMetrics: () => wait(Array.from({ length: 36 }, (_, index): TrainingMetrics => ({ episode: index * 35, reward: -110 + index * 11 + Math.sin(index * 1.7) * 28, successRate: Math.min(96, 8 + index * 2.55 + Math.sin(index) * 6), policyLoss: Math.max(.008, .82 * Math.exp(-index / 7) + Math.random() * .025), valueLoss: Math.max(.01, .55 * Math.exp(-index / 9) + Math.random() * .035) }))) }
 export const mockRobotService: RobotService = { getState: () => wait(robot), setControlMode: (mode) => wait(mode) }
 // 定时抖动用于演示实时刷新；接入后应由真实 SensorService 数据流替换。
