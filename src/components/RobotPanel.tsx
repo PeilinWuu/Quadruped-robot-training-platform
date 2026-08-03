@@ -24,6 +24,8 @@ export function RobotPanelContent({ simulation }: { simulation: SimulationUiStat
         <div><dt>当前模型</dt><dd>{description.displayName}</dd></div>
         <div><dt>模型来源</dt><dd>{description.source}</dd></div>
         <div><dt>可视化</dt><dd>{description.visualProfile}</dd></div>
+        <div><dt>外观</dt><dd>{simulation.visualMode === 'official-mesh' ? 'Go2 官方网格' : '基础几何'}</dd></div>
+        <div><dt>网格状态</dt><dd>{simulation.visualPhase}{simulation.visualError ? '（已回退）' : ''}</dd></div>
         <div><dt>模型加载</dt><dd>{simulation.model ? '仿真模型已加载' : '暂未加载'}</dd></div>
         <div><dt>仿真时间</dt><dd>{pose ? `${number(pose.simulationTime)} s` : '暂未接入'}</dd></div>
         <div><dt>倍速</dt><dd>{simulation.speed.toFixed(2)}×</dd></div>

@@ -38,6 +38,8 @@ export function GaussianViewport() {
     focusRobot,
     setRobotCalibration,
     resetRobotCalibration,
+    setRobotVisualMode,
+    reloadRobotVisuals,
   } = useGaussianViewer()
   const { phase, status, message } = viewerState
   const backingWidth = status ? Math.floor(status.width * status.pixelRatio) : 0
@@ -107,9 +109,23 @@ export function GaussianViewport() {
         ? <p>机器人预览仅桌面版可用</p>
         : <>
             {robotPreview.error ? <p className="error">{robotPreview.error}</p> : null}
+            {robotPreview.overlay?.modelId === 'unitree-go2-menagerie' ? <>
+              <label className="robot-preview__visual-mode">当前视觉模式
+                <select value={robotPreview.overlay.visual?.mode ?? 'official-mesh'} onChange={(event) => setRobotVisualMode(event.target.value as 'official-mesh' | 'primitive-debug')}>
+                  <option value="official-mesh">Go2 官方网格</option>
+                  <option value="primitive-debug">Go2 基础几何调试</option>
+                </select>
+              </label>
+              <dl>
+                <div><dt>网格状态</dt><dd>{robotPreview.overlay.visual?.phase ?? 'idle'}</dd></div>
+                <div><dt>加载部件</dt><dd>{robotPreview.overlay.visual ? `${robotPreview.overlay.visual.loadedParts}/${robotPreview.overlay.visual.totalParts}` : '—'}</dd></div>
+                <div><dt>读取字节</dt><dd>{robotPreview.overlay.visual ? `${robotPreview.overlay.visual.loadedBytes}/${robotPreview.overlay.visual.totalBytes}` : '—'}</dd></div>
+              </dl>
+            </> : <p>Minimal 模型仅支持基础几何</p>}
             <div className="robot-preview__actions">
               <button type="button" onClick={toggleRobotVisible}>{robotPreview.visible ? '隐藏机器人' : '显示机器人'}</button>
               <button type="button" onClick={focusRobot}>聚焦机器人</button>
+              {robotPreview.overlay?.modelId === 'unitree-go2-menagerie' ? <button type="button" onClick={reloadRobotVisuals}>重新加载网格</button> : null}
             </div>
             <div className="robot-preview__calibration-wrap">
               <strong>内存校准</strong>

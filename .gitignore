@@ -42,3 +42,5 @@ Thumbs.db
 *.sw?
 /public/gs/local/*.sog
 !/public/gs/local/.gitkeep
+/public/robot-visuals/unitree-go2/generated/
+/.cache/go2-visuals/

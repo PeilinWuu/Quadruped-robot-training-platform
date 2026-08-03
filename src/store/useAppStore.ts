@@ -9,6 +9,7 @@ import type {
   SimulationState, SimulationStatus, SimulationModelId,
 } from '../services/simulation/types'
 import { DEFAULT_SIMULATION_MODEL_ID } from '../services/simulation/types'
+import type { Go2VisualMode } from '../features/gaussian-viewer/robot/go2VisualManifest'
 
 export interface SimulationPoseSummary {
   sequence: number
@@ -29,6 +30,9 @@ export interface SimulationUiState {
   lastError: string | null
   latestPose: SimulationPoseSummary | null
   busy: boolean
+  visualMode: Go2VisualMode | 'primitive-only'
+  visualPhase: 'idle' | 'loading' | 'ready' | 'fallback'
+  visualError: string | null
 }
 
 export interface SimulationActionResult { ok: boolean; error?: string }
@@ -53,6 +57,7 @@ const INITIAL_SIMULATION: SimulationUiState = {
   processState: services.simulation.desktop ? 'idle' : 'unavailable',
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
   latestPose: null, busy: false,
+  visualMode: 'official-mesh', visualPhase: 'idle', visualError: null,
 }
 
 let eventCleanup: (() => void) | null = null

@@ -28,6 +28,7 @@ import {
 import type {
   RobotOverlayCalibration, RobotOverlayStatus,
 } from '../robot/RobotOverlayRuntime'
+import type { Go2VisualMode } from '../robot/go2VisualManifest'
 
 const STATUS_SAMPLE_INTERVAL_MS = 750
 const DEFAULT_TARGET = new Vec3(0, 0, 0)
@@ -288,6 +289,9 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   getRobotOverlayStatus(): RobotOverlayStatus | null {
     return this.robotOverlay?.getStatus() ?? null
   }
+
+  setRobotVisualMode(mode: Go2VisualMode): void { this.robotOverlay?.setVisualMode(mode); this.requestRender() }
+  reloadRobotVisuals(): void { this.robotOverlay?.reloadVisuals(); this.requestRender() }
 
   async loadScene(source: SceneSource, signal?: AbortSignal): Promise<SceneLoadResult> {
     if (this.disposed || !this.app) throw new SceneLoadError('RUNTIME_DISPOSED')

@@ -6,6 +6,7 @@ import type {
   RobotOverlayCalibration,
   RobotOverlayStatus,
 } from './robot/RobotOverlayRuntime'
+import type { Go2VisualMode } from './robot/go2VisualManifest'
 
 export const MAX_SCENE_BYTES = 50 * 1024 * 1024
 
@@ -77,6 +78,8 @@ export interface ViewerRuntime {
   resetRobotCalibration?(): void
   focusRobot?(): boolean
   getRobotOverlayStatus?(): RobotOverlayStatus | null
+  setRobotVisualMode?(mode: Go2VisualMode): void
+  reloadRobotVisuals?(): void
   dispose(): void
   getStatus(): ViewerRuntimeStatus
 }

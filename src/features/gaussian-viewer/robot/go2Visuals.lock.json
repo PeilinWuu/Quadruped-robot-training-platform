@@ -1,0 +1,1488 @@
+{
+  "schemaVersion": 1,
+  "modelId": "unitree-go2-menagerie",
+  "menagerieCommit": "71f066ad0be9cd271f7ed58c030243ef157af9f4",
+  "go2XmlSha256": "50adb09a4365293e2acdaf2010ae35a82b0f09fea18ae51806fef91e310ed04a",
+  "generator": {
+    "name": "obj2gltf",
+    "version": "3.2.0",
+    "options": {
+      "binary": true,
+      "secure": true,
+      "geometryOnly": true
+    },
+    "validator": {
+      "name": "gltf-validator",
+      "version": "2.0.0-dev.3.10"
+    }
+  },
+  "coordinateStrategy": "OBJ vertices remain in MuJoCo local coordinates; runtime applies local transform C*R_geom with C=Rx(-90deg), while body FK already uses the conjugated PlayCanvas basis.",
+  "materials": [
+    {
+      "name": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ]
+    },
+    {
+      "name": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "white",
+      "rgba": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "sourceObj": "base_0.obj",
+      "sourceSha256": "8cdc53719002a5ee737d867904e534a6d6fa930b616bdcc1b3131e577d4e46c0",
+      "sanitizedSha256": "61289dab68b4015440a92d88112967f65994929ac3b587be2382979965198c93",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 8738,
+      "normalCount": 8738,
+      "textureCoordinateCount": 8738,
+      "faceCount": 10130,
+      "outputGlb": "base_0.glb",
+      "glbSha256": "ae250f31b6b9dc46a7d61140e03a7bfc37696ab6727627efcd3e15020d27004c",
+      "byteSize": 342104,
+      "meshAssetName": "base_0",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "base_1.obj",
+      "sourceSha256": "39d2f4724ff64dd5a0640c308fd98902a2946660a8d033ec8dbf368fd5af0dd6",
+      "sanitizedSha256": "2d5ada0162eb8ced16b117ee30cc7a1a34793436e6416f61049e34f66de94c2e",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 6389,
+      "normalCount": 6389,
+      "textureCoordinateCount": 6389,
+      "faceCount": 3962,
+      "outputGlb": "base_1.glb",
+      "glbSha256": "2f7bffbd516bc9fb7571825e995dbaf770ddd1c452eb92db45b48438636edbce",
+      "byteSize": 229908,
+      "meshAssetName": "base_1",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "base_2.obj",
+      "sourceSha256": "29cae463f95d678e4ede863c36c9b19b0d356b8340412add10670d70bdcc3095",
+      "sanitizedSha256": "724457dee0e72bf8b83c019512c8560185f5da8e07e5a4d576d4c1a90ee0ac5a",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 2120,
+      "normalCount": 2120,
+      "textureCoordinateCount": 2120,
+      "faceCount": 2005,
+      "outputGlb": "base_2.glb",
+      "glbSha256": "106fc81a9ce27884af3dbe7e276025ea9e0b857705093724e54701aa0cbc25a8",
+      "byteSize": 81572,
+      "meshAssetName": "base_2",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "base_3.obj",
+      "sourceSha256": "f51ba43bf300e68957a0c1aa83eaf3e4926f4ac7e64a0d6c33ae5d21fcbcf5f6",
+      "sanitizedSha256": "7e4f7f0a91ef9bc77f7a7e6c93aa6140a8bce488c51995f6c3b78274590357bd",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 2870,
+      "normalCount": 2870,
+      "textureCoordinateCount": 2870,
+      "faceCount": 2320,
+      "outputGlb": "base_3.glb",
+      "glbSha256": "a64fb270db87af68e32f9f535dfabcc4597d4decac3cab77553b390589e743ca",
+      "byteSize": 107460,
+      "meshAssetName": "base_3",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "base_4.obj",
+      "sourceSha256": "49ddec0129546e5dd2075d5beacf7f207baa2860aeff7626818e64d2efbf3821",
+      "sanitizedSha256": "36e68a06f8dc5d093b3f2a77b5a7ed17fbf2574459d88faa91766bb62fd12d62",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 46564,
+      "normalCount": 46564,
+      "textureCoordinateCount": 46564,
+      "faceCount": 59511,
+      "outputGlb": "base_4.glb",
+      "glbSha256": "2a206925c176a4793bb205c04f36b7c7d192b29f18a4b5adfbd603415fa2304b",
+      "byteSize": 1848748,
+      "meshAssetName": "base_4",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "calf_0.obj",
+      "sourceSha256": "4a818cd563c5b7e2a271504442d05fd777d38cbaa028d4a10ad29c9f87bb355e",
+      "sanitizedSha256": "65cb72cd94cae4234861476032928c1390f5edbaf1900d55995ab3ee4c7d24cc",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 5878,
+      "normalCount": 5878,
+      "textureCoordinateCount": 5878,
+      "faceCount": 6512,
+      "outputGlb": "calf_0.glb",
+      "glbSha256": "cb173f0678c317b3ff91e90b3cc70c421753f65a27288b412bf8da416d74feb5",
+      "byteSize": 228844,
+      "meshAssetName": "calf_0",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "calf_1.obj",
+      "sourceSha256": "51950c3a153ae3208592df86ea11c9d6756f8f645ebca5caf6910c61aeb03817",
+      "sanitizedSha256": "68ee0f0d82512702f3dbd77a8f3d9d47541e9e3fcf953785f272c7927c2144e2",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 2396,
+      "normalCount": 2396,
+      "textureCoordinateCount": 2396,
+      "faceCount": 2053,
+      "outputGlb": "calf_1.glb",
+      "glbSha256": "51e5be47b31574dd0bc32efbdb84252dd90ab4c32bb9f1d2c5166d761382391d",
+      "byteSize": 90660,
+      "meshAssetName": "calf_1",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "calf_mirror_0.obj",
+      "sourceSha256": "6dc0406207a1c08a5953fd5962aca1a270fd06593d30d100205e05c1b32d4af2",
+      "sanitizedSha256": "e9939610dd43abf174cd7858987da4270753dd6bf110e3529cda0c1e41407692",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 5877,
+      "normalCount": 5877,
+      "textureCoordinateCount": 5877,
+      "faceCount": 6512,
+      "outputGlb": "calf_mirror_0.glb",
+      "glbSha256": "1604a655752f93a9909ed7163318bc441298f685285916c9cd09151b11710153",
+      "byteSize": 228820,
+      "meshAssetName": "calf_mirror_0",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "calf_mirror_1.obj",
+      "sourceSha256": "f84f5af90b914633165beb3a5493ee499169144c5797dcf04c6eb5842f74b31a",
+      "sanitizedSha256": "b78ad73d599ff6153722a2b72f917c830c583d330b508bebb56f6cc75c128a18",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 2399,
+      "normalCount": 2399,
+      "textureCoordinateCount": 2399,
+      "faceCount": 2053,
+      "outputGlb": "calf_mirror_1.glb",
+      "glbSha256": "e1e9cc859b48d9e3e30152b988abde58fc6acd0ab5af79d04f9b7b7cf9235761",
+      "byteSize": 90764,
+      "meshAssetName": "calf_mirror_1",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "foot.obj",
+      "sourceSha256": "df9e78a7c0110d02557439010f2a5f11f0ec4fd907b32704145dbd6aa7affc0b",
+      "sanitizedSha256": "b9f11fab7bc3426378dd15cff286a80d62be5fc9fbf7a3b890daad104ad6dc43",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 13190,
+      "normalCount": 13190,
+      "textureCoordinateCount": 0,
+      "faceCount": 4404,
+      "outputGlb": "foot.glb",
+      "glbSha256": "4aedd9d48ed8816a955310d7baa269db56d12f475a7686225ff56714a9303523",
+      "byteSize": 344456,
+      "meshAssetName": "foot",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "hip_0.obj",
+      "sourceSha256": "cc29932ab4d251ce3f72389ec4c1f757e44eee138b87e772b648c2bc76b506cd",
+      "sanitizedSha256": "3b19137060c0acda0fa7eb8dd43a9da3770c204123655111ef68a98b3d1715a6",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 19634,
+      "normalCount": 19634,
+      "textureCoordinateCount": 19634,
+      "faceCount": 18056,
+      "outputGlb": "hip_0.glb",
+      "glbSha256": "611d6d6ff1c9856079bd2b3806229aa6f484314e05b247f119df8d63b71d182f",
+      "byteSize": 738256,
+      "meshAssetName": "hip_0",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "hip_1.obj",
+      "sourceSha256": "3fd5bd9b2ef6abe622c0739d3c67eaa1679b19b47132951972c4892a779ea7cf",
+      "sanitizedSha256": "87418b62951b3cfd1304129c7303b62573246b0ba783194c39a938b787ee328c",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 18329,
+      "normalCount": 18329,
+      "textureCoordinateCount": 18329,
+      "faceCount": 18972,
+      "outputGlb": "hip_1.glb",
+      "glbSha256": "ddb36b2ea8f7d83e307487ca4015532b0791e1e43cc00298aa6d118fcf9e7a24",
+      "byteSize": 701988,
+      "meshAssetName": "hip_1",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "thigh_0.obj",
+      "sourceSha256": "bb3edfe6a7b04f4f4dff1ce7b05d426ddce941e276cc6372fb542055893c71ec",
+      "sanitizedSha256": "85064affe58a3d84478b6b11b114bdbd5ade82c61c861ed1c26809a31b3d560e",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 19093,
+      "normalCount": 19093,
+      "textureCoordinateCount": 19093,
+      "faceCount": 18425,
+      "outputGlb": "thigh_0.glb",
+      "glbSha256": "cae9f9ba9bf10b2d5f3d263552354ee411e830b9ba6d83a16f4a4b05eb3d743d",
+      "byteSize": 723160,
+      "meshAssetName": "thigh_0",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "thigh_1.obj",
+      "sourceSha256": "3a631822f9f7d2114b1b79dcdff5abf95103630abb7d91d1f3b8b18117132ed2",
+      "sanitizedSha256": "167ce0afaca42b1532dd18d3044282812bed6d4bee2a9d57fc13cace9d5b27ed",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 9591,
+      "normalCount": 9591,
+      "textureCoordinateCount": 9591,
+      "faceCount": 11708,
+      "outputGlb": "thigh_1.glb",
+      "glbSha256": "8d63937d41063f62fa7f1d0cfca11f4db9f458d23a1f8b7b21696135d2c3c950",
+      "byteSize": 378820,
+      "meshAssetName": "thigh_1",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "thigh_mirror_0.obj",
+      "sourceSha256": "07abaedce761f1dd48647384ac14ba1959276bc78d5a2a62051e8f1c6093933b",
+      "sanitizedSha256": "a35490282bc0d51cbc09bc4e6c199299975d2353ea3158775e8daabb171bf3ca",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 19051,
+      "normalCount": 19051,
+      "textureCoordinateCount": 19051,
+      "faceCount": 18417,
+      "outputGlb": "thigh_mirror_0.glb",
+      "glbSha256": "3e709edfe22e8ce5c634a785cdf273307e05bce78b5350155de0d258198e5240",
+      "byteSize": 721776,
+      "meshAssetName": "thigh_mirror_0",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "sourceObj": "thigh_mirror_1.obj",
+      "sourceSha256": "db984a3e983eabbc9b38183427cca9ab0bb3bdb049f9eab030e06edda36579d6",
+      "sanitizedSha256": "1e9744349cccf0e5f0ca7e8717983b3077f24ae84a18a64f7f746a84fec86120",
+      "mtllibLinesRemoved": 1,
+      "usemtlLinesRemoved": 1,
+      "vertexCount": 9580,
+      "normalCount": 9580,
+      "textureCoordinateCount": 9580,
+      "faceCount": 11708,
+      "outputGlb": "thigh_mirror_1.glb",
+      "glbSha256": "c9ce5d5878d1db1244622a8cf7e310e5c07bfd74d68200acf3b26cb83891b034",
+      "byteSize": 378476,
+      "meshAssetName": "thigh_mirror_1",
+      "validator": {
+        "errors": 0,
+        "warnings": 0
+      }
+    }
+  ],
+  "parts": [
+    {
+      "id": "base-base_0-0",
+      "meshAssetName": "base_0",
+      "sourceObj": "base_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "base",
+      "geomName": "base:base_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/base_0.glb",
+      "sourceSha256": "8cdc53719002a5ee737d867904e534a6d6fa930b616bdcc1b3131e577d4e46c0",
+      "glbSha256": "ae250f31b6b9dc46a7d61140e03a7bfc37696ab6727627efcd3e15020d27004c",
+      "byteSize": 342104
+    },
+    {
+      "id": "base-base_1-1",
+      "meshAssetName": "base_1",
+      "sourceObj": "base_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "base",
+      "geomName": "base:base_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/base_1.glb",
+      "sourceSha256": "39d2f4724ff64dd5a0640c308fd98902a2946660a8d033ec8dbf368fd5af0dd6",
+      "glbSha256": "2f7bffbd516bc9fb7571825e995dbaf770ddd1c452eb92db45b48438636edbce",
+      "byteSize": 229908
+    },
+    {
+      "id": "base-base_2-2",
+      "meshAssetName": "base_2",
+      "sourceObj": "base_2.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "base",
+      "geomName": "base:base_2",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/base_2.glb",
+      "sourceSha256": "29cae463f95d678e4ede863c36c9b19b0d356b8340412add10670d70bdcc3095",
+      "glbSha256": "106fc81a9ce27884af3dbe7e276025ea9e0b857705093724e54701aa0cbc25a8",
+      "byteSize": 81572
+    },
+    {
+      "id": "base-base_3-3",
+      "meshAssetName": "base_3",
+      "sourceObj": "base_3.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "base",
+      "geomName": "base:base_3",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "white",
+      "rgba": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/base_3.glb",
+      "sourceSha256": "f51ba43bf300e68957a0c1aa83eaf3e4926f4ac7e64a0d6c33ae5d21fcbcf5f6",
+      "glbSha256": "a64fb270db87af68e32f9f535dfabcc4597d4decac3cab77553b390589e743ca",
+      "byteSize": 107460
+    },
+    {
+      "id": "base-base_4-4",
+      "meshAssetName": "base_4",
+      "sourceObj": "base_4.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "base",
+      "geomName": "base:base_4",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/base_4.glb",
+      "sourceSha256": "49ddec0129546e5dd2075d5beacf7f207baa2860aeff7626818e64d2efbf3821",
+      "glbSha256": "2a206925c176a4793bb205c04f36b7c7d192b29f18a4b5adfbd603415fa2304b",
+      "byteSize": 1848748
+    },
+    {
+      "id": "FL_hip-hip_0-0",
+      "meshAssetName": "hip_0",
+      "sourceObj": "hip_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_hip",
+      "geomName": "FL_hip:hip_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_0.glb",
+      "sourceSha256": "cc29932ab4d251ce3f72389ec4c1f757e44eee138b87e772b648c2bc76b506cd",
+      "glbSha256": "611d6d6ff1c9856079bd2b3806229aa6f484314e05b247f119df8d63b71d182f",
+      "byteSize": 738256
+    },
+    {
+      "id": "FL_hip-hip_1-1",
+      "meshAssetName": "hip_1",
+      "sourceObj": "hip_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_hip",
+      "geomName": "FL_hip:hip_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_1.glb",
+      "sourceSha256": "3fd5bd9b2ef6abe622c0739d3c67eaa1679b19b47132951972c4892a779ea7cf",
+      "glbSha256": "ddb36b2ea8f7d83e307487ca4015532b0791e1e43cc00298aa6d118fcf9e7a24",
+      "byteSize": 701988
+    },
+    {
+      "id": "FL_thigh-thigh_0-0",
+      "meshAssetName": "thigh_0",
+      "sourceObj": "thigh_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_thigh",
+      "geomName": "FL_thigh:thigh_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_0.glb",
+      "sourceSha256": "bb3edfe6a7b04f4f4dff1ce7b05d426ddce941e276cc6372fb542055893c71ec",
+      "glbSha256": "cae9f9ba9bf10b2d5f3d263552354ee411e830b9ba6d83a16f4a4b05eb3d743d",
+      "byteSize": 723160
+    },
+    {
+      "id": "FL_thigh-thigh_1-1",
+      "meshAssetName": "thigh_1",
+      "sourceObj": "thigh_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_thigh",
+      "geomName": "FL_thigh:thigh_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_1.glb",
+      "sourceSha256": "3a631822f9f7d2114b1b79dcdff5abf95103630abb7d91d1f3b8b18117132ed2",
+      "glbSha256": "8d63937d41063f62fa7f1d0cfca11f4db9f458d23a1f8b7b21696135d2c3c950",
+      "byteSize": 378820
+    },
+    {
+      "id": "FL_calf-calf_0-0",
+      "meshAssetName": "calf_0",
+      "sourceObj": "calf_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_calf",
+      "geomName": "FL_calf:calf_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_0.glb",
+      "sourceSha256": "4a818cd563c5b7e2a271504442d05fd777d38cbaa028d4a10ad29c9f87bb355e",
+      "glbSha256": "cb173f0678c317b3ff91e90b3cc70c421753f65a27288b412bf8da416d74feb5",
+      "byteSize": 228844
+    },
+    {
+      "id": "FL_calf-calf_1-1",
+      "meshAssetName": "calf_1",
+      "sourceObj": "calf_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_calf",
+      "geomName": "FL_calf:calf_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_1.glb",
+      "sourceSha256": "51950c3a153ae3208592df86ea11c9d6756f8f645ebca5caf6910c61aeb03817",
+      "glbSha256": "51e5be47b31574dd0bc32efbdb84252dd90ab4c32bb9f1d2c5166d761382391d",
+      "byteSize": 90660
+    },
+    {
+      "id": "FL_calf-foot-2",
+      "meshAssetName": "foot",
+      "sourceObj": "foot.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FL_calf",
+      "geomName": "FL_calf:foot",
+      "geomPosition": [
+        0,
+        0,
+        -0.213
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/foot.glb",
+      "sourceSha256": "df9e78a7c0110d02557439010f2a5f11f0ec4fd907b32704145dbd6aa7affc0b",
+      "glbSha256": "4aedd9d48ed8816a955310d7baa269db56d12f475a7686225ff56714a9303523",
+      "byteSize": 344456
+    },
+    {
+      "id": "FR_hip-hip_0-0",
+      "meshAssetName": "hip_0",
+      "sourceObj": "hip_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_hip",
+      "geomName": "FR_hip:hip_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        0.0000463268,
+        1,
+        0,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_0.glb",
+      "sourceSha256": "cc29932ab4d251ce3f72389ec4c1f757e44eee138b87e772b648c2bc76b506cd",
+      "glbSha256": "611d6d6ff1c9856079bd2b3806229aa6f484314e05b247f119df8d63b71d182f",
+      "byteSize": 738256
+    },
+    {
+      "id": "FR_hip-hip_1-1",
+      "meshAssetName": "hip_1",
+      "sourceObj": "hip_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_hip",
+      "geomName": "FR_hip:hip_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        0.0000463268,
+        1,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_1.glb",
+      "sourceSha256": "3fd5bd9b2ef6abe622c0739d3c67eaa1679b19b47132951972c4892a779ea7cf",
+      "glbSha256": "ddb36b2ea8f7d83e307487ca4015532b0791e1e43cc00298aa6d118fcf9e7a24",
+      "byteSize": 701988
+    },
+    {
+      "id": "FR_thigh-thigh_mirror_0-0",
+      "meshAssetName": "thigh_mirror_0",
+      "sourceObj": "thigh_mirror_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_thigh",
+      "geomName": "FR_thigh:thigh_mirror_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_mirror_0.glb",
+      "sourceSha256": "07abaedce761f1dd48647384ac14ba1959276bc78d5a2a62051e8f1c6093933b",
+      "glbSha256": "3e709edfe22e8ce5c634a785cdf273307e05bce78b5350155de0d258198e5240",
+      "byteSize": 721776
+    },
+    {
+      "id": "FR_thigh-thigh_mirror_1-1",
+      "meshAssetName": "thigh_mirror_1",
+      "sourceObj": "thigh_mirror_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_thigh",
+      "geomName": "FR_thigh:thigh_mirror_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_mirror_1.glb",
+      "sourceSha256": "db984a3e983eabbc9b38183427cca9ab0bb3bdb049f9eab030e06edda36579d6",
+      "glbSha256": "c9ce5d5878d1db1244622a8cf7e310e5c07bfd74d68200acf3b26cb83891b034",
+      "byteSize": 378476
+    },
+    {
+      "id": "FR_calf-calf_mirror_0-0",
+      "meshAssetName": "calf_mirror_0",
+      "sourceObj": "calf_mirror_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_calf",
+      "geomName": "FR_calf:calf_mirror_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_mirror_0.glb",
+      "sourceSha256": "6dc0406207a1c08a5953fd5962aca1a270fd06593d30d100205e05c1b32d4af2",
+      "glbSha256": "1604a655752f93a9909ed7163318bc441298f685285916c9cd09151b11710153",
+      "byteSize": 228820
+    },
+    {
+      "id": "FR_calf-calf_mirror_1-1",
+      "meshAssetName": "calf_mirror_1",
+      "sourceObj": "calf_mirror_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_calf",
+      "geomName": "FR_calf:calf_mirror_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_mirror_1.glb",
+      "sourceSha256": "f84f5af90b914633165beb3a5493ee499169144c5797dcf04c6eb5842f74b31a",
+      "glbSha256": "e1e9cc859b48d9e3e30152b988abde58fc6acd0ab5af79d04f9b7b7cf9235761",
+      "byteSize": 90764
+    },
+    {
+      "id": "FR_calf-foot-2",
+      "meshAssetName": "foot",
+      "sourceObj": "foot.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "FR_calf",
+      "geomName": "FR_calf:foot",
+      "geomPosition": [
+        0,
+        0,
+        -0.213
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/foot.glb",
+      "sourceSha256": "df9e78a7c0110d02557439010f2a5f11f0ec4fd907b32704145dbd6aa7affc0b",
+      "glbSha256": "4aedd9d48ed8816a955310d7baa269db56d12f475a7686225ff56714a9303523",
+      "byteSize": 344456
+    },
+    {
+      "id": "RL_hip-hip_0-0",
+      "meshAssetName": "hip_0",
+      "sourceObj": "hip_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_hip",
+      "geomName": "RL_hip:hip_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        0.0000463268,
+        0,
+        1,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_0.glb",
+      "sourceSha256": "cc29932ab4d251ce3f72389ec4c1f757e44eee138b87e772b648c2bc76b506cd",
+      "glbSha256": "611d6d6ff1c9856079bd2b3806229aa6f484314e05b247f119df8d63b71d182f",
+      "byteSize": 738256
+    },
+    {
+      "id": "RL_hip-hip_1-1",
+      "meshAssetName": "hip_1",
+      "sourceObj": "hip_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_hip",
+      "geomName": "RL_hip:hip_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        0.0000463268,
+        0,
+        1,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_1.glb",
+      "sourceSha256": "3fd5bd9b2ef6abe622c0739d3c67eaa1679b19b47132951972c4892a779ea7cf",
+      "glbSha256": "ddb36b2ea8f7d83e307487ca4015532b0791e1e43cc00298aa6d118fcf9e7a24",
+      "byteSize": 701988
+    },
+    {
+      "id": "RL_thigh-thigh_0-0",
+      "meshAssetName": "thigh_0",
+      "sourceObj": "thigh_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_thigh",
+      "geomName": "RL_thigh:thigh_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_0.glb",
+      "sourceSha256": "bb3edfe6a7b04f4f4dff1ce7b05d426ddce941e276cc6372fb542055893c71ec",
+      "glbSha256": "cae9f9ba9bf10b2d5f3d263552354ee411e830b9ba6d83a16f4a4b05eb3d743d",
+      "byteSize": 723160
+    },
+    {
+      "id": "RL_thigh-thigh_1-1",
+      "meshAssetName": "thigh_1",
+      "sourceObj": "thigh_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_thigh",
+      "geomName": "RL_thigh:thigh_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_1.glb",
+      "sourceSha256": "3a631822f9f7d2114b1b79dcdff5abf95103630abb7d91d1f3b8b18117132ed2",
+      "glbSha256": "8d63937d41063f62fa7f1d0cfca11f4db9f458d23a1f8b7b21696135d2c3c950",
+      "byteSize": 378820
+    },
+    {
+      "id": "RL_calf-calf_0-0",
+      "meshAssetName": "calf_0",
+      "sourceObj": "calf_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_calf",
+      "geomName": "RL_calf:calf_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_0.glb",
+      "sourceSha256": "4a818cd563c5b7e2a271504442d05fd777d38cbaa028d4a10ad29c9f87bb355e",
+      "glbSha256": "cb173f0678c317b3ff91e90b3cc70c421753f65a27288b412bf8da416d74feb5",
+      "byteSize": 228844
+    },
+    {
+      "id": "RL_calf-calf_1-1",
+      "meshAssetName": "calf_1",
+      "sourceObj": "calf_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_calf",
+      "geomName": "RL_calf:calf_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_1.glb",
+      "sourceSha256": "51950c3a153ae3208592df86ea11c9d6756f8f645ebca5caf6910c61aeb03817",
+      "glbSha256": "51e5be47b31574dd0bc32efbdb84252dd90ab4c32bb9f1d2c5166d761382391d",
+      "byteSize": 90660
+    },
+    {
+      "id": "RL_calf-foot-2",
+      "meshAssetName": "foot",
+      "sourceObj": "foot.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RL_calf",
+      "geomName": "RL_calf:foot",
+      "geomPosition": [
+        0,
+        0,
+        -0.213
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/foot.glb",
+      "sourceSha256": "df9e78a7c0110d02557439010f2a5f11f0ec4fd907b32704145dbd6aa7affc0b",
+      "glbSha256": "4aedd9d48ed8816a955310d7baa269db56d12f475a7686225ff56714a9303523",
+      "byteSize": 344456
+    },
+    {
+      "id": "RR_hip-hip_0-0",
+      "meshAssetName": "hip_0",
+      "sourceObj": "hip_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_hip",
+      "geomName": "RR_hip:hip_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        2.14617e-9,
+        0.0000463268,
+        0.0000463268,
+        -1
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_0.glb",
+      "sourceSha256": "cc29932ab4d251ce3f72389ec4c1f757e44eee138b87e772b648c2bc76b506cd",
+      "glbSha256": "611d6d6ff1c9856079bd2b3806229aa6f484314e05b247f119df8d63b71d182f",
+      "byteSize": 738256
+    },
+    {
+      "id": "RR_hip-hip_1-1",
+      "meshAssetName": "hip_1",
+      "sourceObj": "hip_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_hip",
+      "geomName": "RR_hip:hip_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        2.14617e-9,
+        0.0000463268,
+        0.0000463268,
+        -1
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/hip_1.glb",
+      "sourceSha256": "3fd5bd9b2ef6abe622c0739d3c67eaa1679b19b47132951972c4892a779ea7cf",
+      "glbSha256": "ddb36b2ea8f7d83e307487ca4015532b0791e1e43cc00298aa6d118fcf9e7a24",
+      "byteSize": 701988
+    },
+    {
+      "id": "RR_thigh-thigh_mirror_0-0",
+      "meshAssetName": "thigh_mirror_0",
+      "sourceObj": "thigh_mirror_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_thigh",
+      "geomName": "RR_thigh:thigh_mirror_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "metal",
+      "rgba": [
+        0.9,
+        0.95,
+        0.95,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_mirror_0.glb",
+      "sourceSha256": "07abaedce761f1dd48647384ac14ba1959276bc78d5a2a62051e8f1c6093933b",
+      "glbSha256": "3e709edfe22e8ce5c634a785cdf273307e05bce78b5350155de0d258198e5240",
+      "byteSize": 721776
+    },
+    {
+      "id": "RR_thigh-thigh_mirror_1-1",
+      "meshAssetName": "thigh_mirror_1",
+      "sourceObj": "thigh_mirror_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_thigh",
+      "geomName": "RR_thigh:thigh_mirror_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/thigh_mirror_1.glb",
+      "sourceSha256": "db984a3e983eabbc9b38183427cca9ab0bb3bdb049f9eab030e06edda36579d6",
+      "glbSha256": "c9ce5d5878d1db1244622a8cf7e310e5c07bfd74d68200acf3b26cb83891b034",
+      "byteSize": 378476
+    },
+    {
+      "id": "RR_calf-calf_mirror_0-0",
+      "meshAssetName": "calf_mirror_0",
+      "sourceObj": "calf_mirror_0.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_calf",
+      "geomName": "RR_calf:calf_mirror_0",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "gray",
+      "rgba": [
+        0.671705,
+        0.692426,
+        0.77427,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_mirror_0.glb",
+      "sourceSha256": "6dc0406207a1c08a5953fd5962aca1a270fd06593d30d100205e05c1b32d4af2",
+      "glbSha256": "1604a655752f93a9909ed7163318bc441298f685285916c9cd09151b11710153",
+      "byteSize": 228820
+    },
+    {
+      "id": "RR_calf-calf_mirror_1-1",
+      "meshAssetName": "calf_mirror_1",
+      "sourceObj": "calf_mirror_1.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_calf",
+      "geomName": "RR_calf:calf_mirror_1",
+      "geomPosition": [
+        0,
+        0,
+        0
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/calf_mirror_1.glb",
+      "sourceSha256": "f84f5af90b914633165beb3a5493ee499169144c5797dcf04c6eb5842f74b31a",
+      "glbSha256": "e1e9cc859b48d9e3e30152b988abde58fc6acd0ab5af79d04f9b7b7cf9235761",
+      "byteSize": 90764
+    },
+    {
+      "id": "RR_calf-foot-2",
+      "meshAssetName": "foot",
+      "sourceObj": "foot.obj",
+      "meshScale": [
+        1,
+        1,
+        1
+      ],
+      "bodyName": "RR_calf",
+      "geomName": "RR_calf:foot",
+      "geomPosition": [
+        0,
+        0,
+        -0.213
+      ],
+      "geomOrientation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "material": "black",
+      "rgba": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "glbUrl": "/robot-visuals/unitree-go2/generated/foot.glb",
+      "sourceSha256": "df9e78a7c0110d02557439010f2a5f11f0ec4fd907b32704145dbd6aa7affc0b",
+      "glbSha256": "4aedd9d48ed8816a955310d7baa269db56d12f475a7686225ff56714a9303523",
+      "byteSize": 344456
+    }
+  ]
+}
