@@ -17,6 +17,12 @@ import type {
   ViewerRuntime,
   ViewerRuntimeStatus,
 } from './types'
+import { getSimulationAdapter, simulationDesktopSupported } from '../../services/simulation/simulationService'
+import type {
+  SimulationAdapter, SimulationStatus, SimulationSubscription,
+} from '../../services/simulation/types'
+import type { RobotOverlayCalibration } from './robot/RobotOverlayRuntime'
+import { DEFAULT_ROBOT_CALIBRATION } from './robot/RobotOverlayRuntime'
 
 const DEV_TEST_SCENE_SOURCE: SceneSource | null = import.meta.env.DEV
   ? {
@@ -47,6 +53,33 @@ const INITIAL_IMPORT_STATE: ImportUiState = {
   operationId: null,
   message: null,
   error: null,
+}
+
+type RobotPreviewState = {
+  status: SimulationStatus | null
+  busy: boolean
+  error: string | null
+  poseHz: number
+  latestSequence: number | null
+  visible: boolean
+  calibration: RobotOverlayCalibration
+  yawDegrees: number
+}
+
+const INITIAL_ROBOT_STATE: RobotPreviewState = {
+  status: null,
+  busy: false,
+  error: null,
+  poseHz: 0,
+  latestSequence: null,
+  visible: true,
+  calibration: DEFAULT_ROBOT_CALIBRATION,
+  yawDegrees: 0,
+}
+
+function safeSimulationMessage(error: unknown): string {
+  if (error instanceof Error && error.message.includes('桌面版')) return error.message
+  return '机器人预览操作失败'
 }
 
 export function sourceFromRecord(scene: SceneRecord): SceneSource {
@@ -104,13 +137,22 @@ export function useGaussianViewer() {
   const lifecycleGenerationRef = useRef(0)
   const mountedRef = useRef(true)
   const activeSourceRef = useRef<SceneSource | null>(null)
+  const simulationAdapterRef = useRef<SimulationAdapter | null>(null)
+  const simulationSubscriptionRef = useRef<SimulationSubscription | null>(null)
+  const poseCountRef = useRef(0)
+  const poseRateSampleRef = useRef({ count: 0, sampledAt: performance.now() })
+  const robotBusyRef = useRef(false)
+  const robotVisibleRef = useRef(true)
+  const robotCalibrationRef = useRef(DEFAULT_ROBOT_CALIBRATION)
   const [viewerState, setViewerState] = useState<GaussianViewerState>(INITIAL_STATE)
   const [scenes, setScenes] = useState<SceneRecord[]>([])
   const [currentScene, setCurrentScene] = useState<SceneRecord | null>(null)
   const [libraryError, setLibraryError] = useState<string | null>(null)
   const [orientationBusy, setOrientationBusy] = useState(false)
   const [importState, setImportState] = useState<ImportUiState>(INITIAL_IMPORT_STATE)
+  const [robotPreview, setRobotPreview] = useState<RobotPreviewState>(INITIAL_ROBOT_STATE)
   const desktop = sceneImportSupported()
+  const robotDesktop = simulationDesktopSupported()
 
   useEffect(() => {
     mountedRef.current = true
@@ -197,6 +239,115 @@ export function useGaussianViewer() {
 
   const resetCamera = useCallback(() => {
     runtimeRef.current?.resetCamera?.()
+  }, [])
+
+  const ensureRobotSubscription = useCallback(async (adapter: SimulationAdapter) => {
+    if (simulationSubscriptionRef.current) return
+    simulationSubscriptionRef.current = await adapter.subscribe((event) => {
+      if (event.type === 'pose') {
+        poseCountRef.current += 1
+        if (runtimeRef.current?.updateRobotPose?.(event.payload)) {
+          runtimeRef.current.setRobotVisible?.(robotVisibleRef.current)
+        }
+      } else if (event.type === 'error') {
+        runtimeRef.current?.setRobotVisible?.(false)
+      }
+    })
+  }, [])
+
+  const runRobotAction = useCallback(async (operation: (adapter: SimulationAdapter) => Promise<void>) => {
+    if (robotBusyRef.current) return
+    robotBusyRef.current = true
+    setRobotPreview((current) => ({ ...current, busy: true, error: null }))
+    try {
+      const adapter = simulationAdapterRef.current ?? await getSimulationAdapter()
+      simulationAdapterRef.current = adapter
+      await operation(adapter)
+      const status = await adapter.getStatus()
+      if (mountedRef.current) setRobotPreview((current) => ({ ...current, status }))
+    } catch (error: unknown) {
+      if (mountedRef.current) {
+        setRobotPreview((current) => ({ ...current, error: safeSimulationMessage(error) }))
+      }
+    } finally {
+      robotBusyRef.current = false
+      if (mountedRef.current) setRobotPreview((current) => ({ ...current, busy: false }))
+    }
+  }, [])
+
+  const startRobotPreview = useCallback(() => runRobotAction(async (adapter) => {
+    let status = await adapter.getStatus()
+    if (status.state !== 'ready') status = await adapter.startSidecar()
+    if (!status.model) await adapter.loadDefaultModel()
+    await ensureRobotSubscription(adapter)
+    status = await adapter.getStatus()
+    if (status.simulationState !== 'running') await adapter.startSimulation()
+    runtimeRef.current?.setRobotVisible?.(robotVisibleRef.current)
+  }), [ensureRobotSubscription, runRobotAction])
+
+  const pauseRobotPreview = useCallback(() => runRobotAction(async (adapter) => {
+    await adapter.pauseSimulation()
+  }), [runRobotAction])
+
+  const stepRobotPreview = useCallback(() => runRobotAction(async (adapter) => {
+    const pose = await adapter.stepSimulation(1)
+    runtimeRef.current?.updateRobotPose?.(pose, true)
+    runtimeRef.current?.setRobotVisible?.(robotVisibleRef.current)
+  }), [runRobotAction])
+
+  const resetRobotPreview = useCallback(() => runRobotAction(async (adapter) => {
+    await adapter.resetSimulation()
+    const pose = await adapter.getLatestPose()
+    if (pose) runtimeRef.current?.updateRobotPose?.(pose, true)
+  }), [runRobotAction])
+
+  const stopRobotSimulation = useCallback(() => runRobotAction(async (adapter) => {
+    await adapter.stopSimulation()
+  }), [runRobotAction])
+
+  const closeRobotSidecar = useCallback(() => runRobotAction(async (adapter) => {
+    await simulationSubscriptionRef.current?.unsubscribe()
+    simulationSubscriptionRef.current = null
+    await adapter.stopSidecar()
+    runtimeRef.current?.setRobotVisible?.(false)
+    runtimeRef.current?.clearRobotPose?.()
+  }), [runRobotAction])
+
+  const toggleRobotVisible = useCallback(() => {
+    robotVisibleRef.current = !robotVisibleRef.current
+    runtimeRef.current?.setRobotVisible?.(robotVisibleRef.current)
+    setRobotPreview((current) => ({ ...current, visible: robotVisibleRef.current }))
+  }, [])
+
+  const focusRobot = useCallback(() => {
+    if (!runtimeRef.current?.focusRobot?.()) {
+      setRobotPreview((current) => ({ ...current, error: '尚未收到可聚焦的机器人姿态' }))
+    }
+  }, [])
+
+  const setRobotCalibration = useCallback((
+    calibration: RobotOverlayCalibration,
+    yawDegrees: number,
+  ) => {
+    const yaw = Number.isFinite(yawDegrees) ? yawDegrees : 0
+    const half = yaw * Math.PI / 360
+    const next: RobotOverlayCalibration = {
+      ...calibration,
+      rotation: [0, Math.sin(half), 0, Math.cos(half)],
+    }
+    if (!runtimeRef.current?.setRobotCalibration?.(next)) return
+    robotCalibrationRef.current = next
+    setRobotPreview((current) => ({ ...current, calibration: next, yawDegrees: yaw }))
+  }, [])
+
+  const resetRobotCalibration = useCallback(() => {
+    runtimeRef.current?.resetRobotCalibration?.()
+    robotCalibrationRef.current = DEFAULT_ROBOT_CALIBRATION
+    setRobotPreview((current) => ({
+      ...current,
+      calibration: DEFAULT_ROBOT_CALIBRATION,
+      yawDegrees: 0,
+    }))
   }, [])
 
   const persistOrientation = useCallback(async (nextOrientation: SceneOrientation) => {
@@ -342,6 +493,56 @@ export function useGaussianViewer() {
   }, [])
 
   useEffect(() => {
+    if (!robotDesktop) return
+    let disposed = false
+    const refresh = async () => {
+      try {
+        const adapter = simulationAdapterRef.current ?? await getSimulationAdapter()
+        simulationAdapterRef.current = adapter
+        const status = await adapter.getStatus()
+        if (disposed) return
+        const poseCount = poseCountRef.current
+        const now = performance.now()
+        const sample = poseRateSampleRef.current
+        const elapsed = now - sample.sampledAt
+        const sampledPoseHz = elapsed >= 750
+          ? Math.round((poseCount - sample.count) * 1000 / elapsed)
+          : null
+        if (sampledPoseHz !== null) {
+          poseRateSampleRef.current = { count: poseCount, sampledAt: now }
+        }
+        setRobotPreview((current) => ({
+          ...current,
+          status,
+          poseHz: sampledPoseHz ?? current.poseHz,
+          latestSequence: runtimeRef.current?.getRobotOverlayStatus?.()?.sequence ?? current.latestSequence,
+        }))
+        if (['crashed', 'failed', 'unresponsive'].includes(status.state)) {
+          runtimeRef.current?.setRobotVisible?.(false)
+          runtimeRef.current?.clearRobotPose?.()
+          await simulationSubscriptionRef.current?.unsubscribe().catch(() => undefined)
+          simulationSubscriptionRef.current = null
+        }
+      } catch {
+        // A later poll or explicit action reports a sanitized state.
+      }
+    }
+    void refresh()
+    const intervalId = window.setInterval(() => void refresh(), 1000)
+    return () => {
+      disposed = true
+      window.clearInterval(intervalId)
+      const subscription = simulationSubscriptionRef.current
+      simulationSubscriptionRef.current = null
+      void subscription?.unsubscribe().catch(() => undefined)
+      const adapter = simulationAdapterRef.current
+      if (adapter?.desktop) void adapter.stopSidecar().catch(() => undefined)
+      runtimeRef.current?.setRobotVisible?.(false)
+      runtimeRef.current?.clearRobotPose?.()
+    }
+  }, [robotDesktop])
+
+  useEffect(() => {
     const lifecycleGeneration = ++lifecycleGenerationRef.current
     const container = containerRef.current
     const canvas = canvasRef.current
@@ -433,6 +634,8 @@ export function useGaussianViewer() {
 
         runtime = nextRuntime
         runtimeRef.current = nextRuntime
+        runtime.setRobotCalibration?.(robotCalibrationRef.current)
+        runtime.setRobotVisible?.(robotVisibleRef.current)
         if (appliedSize.width >= 0 && appliedSize.height >= 0) {
           runtime.resize(appliedSize.width, appliedSize.height, appliedSize.pixelRatio)
         }
@@ -482,5 +685,17 @@ export function useGaussianViewer() {
     orientationBusy,
     rotateSceneOrientation,
     resetSceneOrientation,
+    robotDesktop,
+    robotPreview,
+    startRobotPreview,
+    pauseRobotPreview,
+    stepRobotPreview,
+    resetRobotPreview,
+    stopRobotSimulation,
+    closeRobotSidecar,
+    toggleRobotVisible,
+    focusRobot,
+    setRobotCalibration,
+    resetRobotCalibration,
   }
 }

@@ -32,6 +32,18 @@ export function GaussianViewport() {
     orientationBusy,
     rotateSceneOrientation,
     resetSceneOrientation,
+    robotDesktop,
+    robotPreview,
+    startRobotPreview,
+    pauseRobotPreview,
+    stepRobotPreview,
+    resetRobotPreview,
+    stopRobotSimulation,
+    closeRobotSidecar,
+    toggleRobotVisible,
+    focusRobot,
+    setRobotCalibration,
+    resetRobotCalibration,
   } = useGaussianViewer()
   const { phase, status, message } = viewerState
   const backingWidth = status ? Math.floor(status.width * status.pixelRatio) : 0
@@ -94,6 +106,66 @@ export function GaussianViewport() {
         重置视角
       </button>
     </div>
+    <aside className="robot-preview" aria-label="机器人预览技术验证">
+      <header><strong>机器人预览</strong><span>技术预览 · D4D-1</span></header>
+      {!robotDesktop
+        ? <p>机器人预览仅桌面版可用</p>
+        : <>
+            <dl>
+              <div><dt>Sidecar</dt><dd>{robotPreview.status?.state ?? 'idle'}</dd></div>
+              <div><dt>Simulation</dt><dd>{robotPreview.status?.simulationState ?? 'unloaded'}</dd></div>
+              <div><dt>Model</dt><dd>{robotPreview.status?.model?.modelId ?? '未加载'}</dd></div>
+              <div><dt>Pose</dt><dd>{robotPreview.poseHz} Hz · #{robotPreview.latestSequence ?? '—'}</dd></div>
+            </dl>
+            {robotPreview.error ? <p className="error">{robotPreview.error}</p> : null}
+            <div className="robot-preview__actions">
+              <button type="button" disabled={robotPreview.busy} onClick={() => void startRobotPreview()}>启动预览</button>
+              <button type="button" disabled={robotPreview.busy} onClick={() => void pauseRobotPreview()}>暂停</button>
+              <button type="button" disabled={robotPreview.busy} onClick={() => void stepRobotPreview()}>单步</button>
+              <button type="button" disabled={robotPreview.busy} onClick={() => void resetRobotPreview()}>重置</button>
+              <button type="button" disabled={robotPreview.busy} onClick={() => void stopRobotSimulation()}>停止仿真</button>
+              <button type="button" disabled={robotPreview.busy} onClick={() => void closeRobotSidecar()}>关闭 Sidecar</button>
+              <button type="button" onClick={toggleRobotVisible}>{robotPreview.visible ? '隐藏机器人' : '显示机器人'}</button>
+              <button type="button" onClick={focusRobot}>聚焦机器人</button>
+            </div>
+            <details>
+              <summary>内存校准</summary>
+              <div className="robot-preview__calibration">
+                {(['X', 'Y', 'Z'] as const).map((axis, index) => <label key={axis}>
+                  {axis}
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={robotPreview.calibration.translation[index]}
+                    onChange={(event) => {
+                      const translation = [...robotPreview.calibration.translation] as [number, number, number]
+                      translation[index] = Number(event.target.value)
+                      setRobotCalibration({ ...robotPreview.calibration, translation }, robotPreview.yawDegrees)
+                    }}
+                  />
+                </label>)}
+                <label>Yaw°<input
+                  type="number"
+                  step="5"
+                  value={robotPreview.yawDegrees}
+                  onChange={(event) => setRobotCalibration(robotPreview.calibration, Number(event.target.value))}
+                /></label>
+                <label>Scale<input
+                  type="number"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value={robotPreview.calibration.scale}
+                  onChange={(event) => setRobotCalibration(
+                    { ...robotPreview.calibration, scale: Number(event.target.value) },
+                    robotPreview.yawDegrees,
+                  )}
+                /></label>
+                <button type="button" onClick={resetRobotCalibration}>恢复默认</button>
+              </div>
+            </details>
+          </>}
+    </aside>
     {desktop && currentScene ? <div
       className="gaussian-viewport__orientation-controls"
       aria-label="Scene orientation controls"

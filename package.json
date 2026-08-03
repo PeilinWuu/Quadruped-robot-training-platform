@@ -16,7 +16,7 @@
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "npm run test:node && npm run test:frontend",
     "test:node": "node --import tsx --test server/*.test.ts",
-    "test:frontend": "vitest run src/services/scenes",
+    "test:frontend": "vitest run src/services/scenes src/services/simulation src/features/gaussian-viewer/robot",
     "preview": "vite preview",
     "tauri": "tauri"
   },

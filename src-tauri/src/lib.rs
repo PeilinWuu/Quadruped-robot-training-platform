@@ -41,7 +41,8 @@ pub fn run() {
             simulation::commands::simulation_run_stop,
             simulation::commands::simulation_set_speed,
             simulation::commands::simulation_latest_pose,
-            simulation::commands::simulation_subscribe
+            simulation::commands::simulation_subscribe,
+            simulation::commands::simulation_unsubscribe
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Quadruped Robot Research desktop application");

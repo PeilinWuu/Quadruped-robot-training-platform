@@ -105,8 +105,17 @@ pub fn simulation_latest_pose(manager: State<'_, SimulationManager>) -> Option<R
 }
 #[tauri::command]
 pub fn simulation_subscribe(
+    subscription_id: String,
     channel: Channel<SimulationEvent>,
     manager: State<'_, SimulationManager>,
 ) -> Result<(), SimulationError> {
-    manager.subscribe(channel)
+    manager.subscribe(subscription_id, channel)
+}
+
+#[tauri::command]
+pub fn simulation_unsubscribe(
+    subscription_id: String,
+    manager: State<'_, SimulationManager>,
+) -> Result<(), SimulationError> {
+    manager.unsubscribe(&subscription_id)
 }

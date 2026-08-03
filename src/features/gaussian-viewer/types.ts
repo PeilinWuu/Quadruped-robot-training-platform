@@ -1,6 +1,11 @@
 export type ViewerBackend = 'WebGL2 Probe' | 'PlayCanvas WebGL2'
 
 import type { SceneOrientation } from '../../services/scenes/types'
+import type { RobotPose } from '../../services/simulation/types'
+import type {
+  RobotOverlayCalibration,
+  RobotOverlayStatus,
+} from './robot/RobotOverlayRuntime'
 
 export const MAX_SCENE_BYTES = 50 * 1024 * 1024
 
@@ -64,6 +69,13 @@ export interface ViewerRuntime {
   unloadScene?(): Promise<void>
   updateOrientation?(orientation: SceneOrientation): void
   resetCamera?(): void
+  setRobotVisible?(visible: boolean): void
+  updateRobotPose?(pose: RobotPose, immediate?: boolean): boolean
+  clearRobotPose?(): void
+  setRobotCalibration?(calibration: RobotOverlayCalibration): boolean
+  resetRobotCalibration?(): void
+  focusRobot?(): boolean
+  getRobotOverlayStatus?(): RobotOverlayStatus | null
   dispose(): void
   getStatus(): ViewerRuntimeStatus
 }

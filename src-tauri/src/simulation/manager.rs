@@ -79,10 +79,9 @@ struct ManagerInner {
     simulation_state: SimulationState,
     generation: u64,
     request_counter: u64,
-    subscriber_counter: u64,
     runtime: Option<ProcessRuntime>,
     pending: HashMap<String, PendingSender>,
-    subscribers: HashMap<u64, Channel<SimulationEvent>>,
+    subscribers: HashMap<String, Channel<SimulationEvent>>,
     stderr_lines: VecDeque<String>,
     stderr_bytes: usize,
     sidecar_version: Option<String>,
@@ -116,7 +115,6 @@ impl SimulationManager {
                     simulation_state: SimulationState::Unloaded,
                     generation: 0,
                     request_counter: 0,
-                    subscriber_counter: 0,
                     runtime: None,
                     pending: HashMap::new(),
                     subscribers: HashMap::new(),
@@ -363,15 +361,44 @@ impl SimulationManager {
             .ok()
             .and_then(|inner| inner.latest_pose.clone())
     }
-    pub fn subscribe(&self, channel: Channel<SimulationEvent>) -> Result<(), SimulationError> {
+    pub fn subscribe(
+        &self,
+        subscription_id: String,
+        channel: Channel<SimulationEvent>,
+    ) -> Result<(), SimulationError> {
+        if subscription_id.is_empty()
+            || subscription_id.len() > 64
+            || !subscription_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err(SimulationError::new(
+                "INVALID_SUBSCRIPTION_ID",
+                "The simulation subscription identifier is invalid.",
+            ));
+        }
         let mut inner = self
             .core
             .inner
             .lock()
             .map_err(|_| SimulationError::internal())?;
-        inner.subscriber_counter = inner.subscriber_counter.wrapping_add(1);
-        let id = inner.subscriber_counter;
-        inner.subscribers.insert(id, channel);
+        if inner.subscribers.contains_key(&subscription_id) {
+            return Err(SimulationError::new(
+                "DUPLICATE_SUBSCRIPTION",
+                "The simulation subscription already exists.",
+            ));
+        }
+        inner.subscribers.insert(subscription_id, channel);
+        Ok(())
+    }
+
+    pub fn unsubscribe(&self, subscription_id: &str) -> Result<(), SimulationError> {
+        let mut inner = self
+            .core
+            .inner
+            .lock()
+            .map_err(|_| SimulationError::internal())?;
+        inner.subscribers.remove(subscription_id);
         Ok(())
     }
 
@@ -739,7 +766,7 @@ fn dispatch_event(core: &Arc<ManagerCore>, event: SimulationEvent) {
             inner
                 .subscribers
                 .iter()
-                .map(|(id, channel)| (*id, channel.clone()))
+                .map(|(id, channel)| (id.clone(), channel.clone()))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -986,7 +1013,9 @@ mod tests {
     fn closed_channel_subscriber_is_removed() {
         let manager = SimulationManager::new();
         let channel = Channel::new(|_| Err(std::io::Error::other("closed").into()));
-        manager.subscribe(channel).unwrap();
+        manager
+            .subscribe("test-subscription".into(), channel)
+            .unwrap();
         dispatch_event(
             &manager.core,
             SimulationEvent::StateChanged(super::super::protocol::StateChangedPayload {
@@ -994,6 +1023,18 @@ mod tests {
                 speed: Some(1.0),
             }),
         );
+        assert!(manager.core.inner.lock().unwrap().subscribers.is_empty());
+    }
+
+    #[test]
+    fn explicit_unsubscribe_drops_channel_and_is_idempotent() {
+        let manager = SimulationManager::new();
+        let channel = Channel::new(|_| Ok(()));
+        manager
+            .subscribe("test-subscription".into(), channel)
+            .unwrap();
+        manager.unsubscribe("test-subscription").unwrap();
+        manager.unsubscribe("test-subscription").unwrap();
         assert!(manager.core.inner.lock().unwrap().subscribers.is_empty());
     }
 }

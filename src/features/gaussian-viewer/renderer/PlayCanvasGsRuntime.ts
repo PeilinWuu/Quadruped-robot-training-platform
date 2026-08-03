@@ -21,6 +21,13 @@ import type {
 } from '../types'
 import { MAX_SCENE_BYTES } from '../types'
 import { PlayCanvasCameraController } from './PlayCanvasCameraController'
+import type { RobotPose } from '../../../services/simulation/types'
+import {
+  RobotOverlayRuntime,
+} from '../robot/RobotOverlayRuntime'
+import type {
+  RobotOverlayCalibration, RobotOverlayStatus,
+} from '../robot/RobotOverlayRuntime'
 
 const STATUS_SAMPLE_INTERVAL_MS = 750
 const DEFAULT_TARGET = new Vec3(0, 0, 0)
@@ -87,6 +94,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private pendingAsset: Asset | null = null
   private cameraController: PlayCanvasCameraController | null = null
   private gsplatSystem: GSplatComponentSystem | null = null
+  private robotOverlay: RobotOverlayRuntime | null = null
   private objectUrl: string | null = null
   private pendingParse: Promise<SceneLoadResult> | null = null
   private cancelPendingParse: (() => void) | null = null
@@ -156,9 +164,12 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       )
       this.cameraController.reset(this.initialTarget, this.initialDistance)
 
+      this.robotOverlay = new RobotOverlayRuntime(app)
+
       canvas.addEventListener('webglcontextlost', this.handleContextLost)
       canvas.addEventListener('webglcontextrestored', this.handleContextRestored)
       app.on('frameend', this.handleFrameEnd)
+      app.on('update', this.handleUpdate)
       const gsplatSystem = app.systems.gsplat
       if (!gsplatSystem) throw new Error('GSPLAT_SYSTEM_UNAVAILABLE')
       this.gsplatSystem = gsplatSystem
@@ -228,6 +239,48 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.status = { ...this.status, running: false }
     this.updateControlsEnabled()
     this.emitStatus()
+  }
+
+  setRobotVisible(visible: boolean): void {
+    this.robotOverlay?.setVisible(visible)
+    this.updateControlsEnabled()
+    this.requestRender()
+  }
+
+  updateRobotPose(pose: RobotPose, immediate = false): boolean {
+    const accepted = this.robotOverlay?.updatePose(pose, immediate) ?? false
+    if (accepted) {
+      this.updateControlsEnabled()
+      this.requestRender()
+    }
+    return accepted
+  }
+
+  clearRobotPose(): void {
+    this.robotOverlay?.clearPose()
+    this.requestRender()
+  }
+
+  setRobotCalibration(calibration: RobotOverlayCalibration): boolean {
+    const accepted = this.robotOverlay?.setCalibration(calibration) ?? false
+    if (accepted) this.requestRender()
+    return accepted
+  }
+
+  resetRobotCalibration(): void {
+    this.robotOverlay?.resetCalibration()
+    this.requestRender()
+  }
+
+  focusRobot(): boolean {
+    const bounds = this.robotOverlay?.getBounds()
+    if (!bounds || !this.cameraController) return false
+    this.cameraController.reset(new Vec3(...bounds.center), Math.max(bounds.radius * 2.8, 0.5))
+    return true
+  }
+
+  getRobotOverlayStatus(): RobotOverlayStatus | null {
+    return this.robotOverlay?.getStatus() ?? null
   }
 
   async loadScene(source: SceneSource, signal?: AbortSignal): Promise<SceneLoadResult> {
@@ -363,8 +416,11 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored)
     app?.off('frameend', this.handleFrameEnd)
+    app?.off('update', this.handleUpdate)
     this.gsplatSystem?.off('frame:request', this.handleFrameRequest)
     this.gsplatSystem = null
+    this.robotOverlay?.dispose()
+    this.robotOverlay = null
     this.cameraEntity?.destroy()
     this.cameraEntity = null
     this.app = null
@@ -599,7 +655,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   private updateControlsEnabled(): void {
     const enabled = this.activeRendering
-      && this.status.sceneLoaded === true
+      && (this.status.sceneLoaded === true || this.robotOverlay?.getStatus().hasPose === true)
       && !this.status.contextLost
       && !this.disposed
     this.cameraController?.setEnabled(enabled)
@@ -627,6 +683,11 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     }
   }
 
+  private readonly handleUpdate = (): void => {
+    if (!this.activeRendering || this.status.contextLost) return
+    this.robotOverlay?.update()
+  }
+
   private readonly handleContextLost = (): void => {
     if (this.disposed) return
     this.status = {
@@ -637,6 +698,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       fps: 0,
       error: null,
     }
+    this.robotOverlay?.setContextLost(true)
     this.updateControlsEnabled()
     this.emitStatus()
   }
@@ -650,6 +712,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       contextLost: false,
       error: this.app.graphicsDevice.isWebGL2 ? null : 'WEBGL2_RESTORE_FAILED',
     }
+    this.robotOverlay?.setContextLost(false)
     this.app.autoRender = this.activeRendering
     this.updateControlsEnabled()
     this.requestRender()
