@@ -8,6 +8,7 @@ describe('RobotPanel real simulation fields', () => {
     useAppStore.setState((state) => ({ simulation: {
       ...state.simulation,
       processState: 'ready', simulationState: 'paused', speed: 2,
+      selectedModelId: 'minimal-quadruped-v1',
       model: { modelId: 'minimal-quadruped-v1', timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 14 },
       latestPose: {
         sequence: 42, simulationTime: 1.25, updatedAt: 1000,
@@ -29,5 +30,7 @@ describe('RobotPanel real simulation fields', () => {
     const html = renderToStaticMarkup(<RobotPanelContent simulation={useAppStore.getState().simulation}/>)
     expect(html).toContain('电池、CPU 温度、网络信号、真实步态、传感器状态、Actuator telemetry')
     expect(html).toContain('暂未接入')
+    expect(html).toContain('实体机器人未连接')
+    expect(html).toContain('项目测试模型')
   })
 })

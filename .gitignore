@@ -15,6 +15,7 @@ dist-ssr
 /src-tauri/resources/sidecar/*.exe
 /src-tauri/resources/sidecar/*.dll
 /.cache/mujoco/
+/.cache/mujoco-menagerie/
 *.pdb
 *.local
 data/

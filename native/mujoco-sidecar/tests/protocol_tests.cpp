@@ -83,11 +83,47 @@ int main() {
   for (const auto& joint : engine.latest_pose()["joints"]) names.push_back(joint["name"]);
   expect(std::adjacent_find(names.begin(), names.end()) == names.end(), "joint order stable");
 
+  const std::array<const char*, 12> go2_names = {
+      "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint", "FR_hip_joint",
+      "FR_thigh_joint", "FR_calf_joint", "RL_hip_joint", "RL_thigh_joint",
+      "RL_calf_joint", "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"};
+  const auto go2_started = std::chrono::steady_clock::now();
+  const auto go2_loaded = engine.load_model("unitree-go2-menagerie");
+  const auto go2_load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - go2_started).count();
+  expect(go2_loaded.ok, "Go2 wrapper loads");
+  expect(go2_loaded.payload["jointCount"] == 12 && go2_loaded.payload["actuatorCount"] == 12,
+         "Go2 metadata");
+  Json go2_home = engine.latest_pose();
+  for (std::size_t index = 0; index < go2_names.size(); ++index) {
+    expect(go2_home["joints"][index]["name"] == go2_names[index], "Go2 joint order");
+  }
+  expect(go2_home["simulationTime"] == 0.0 && finite_pose(go2_home), "Go2 home finite");
+  for (int index = 0; index < 5; ++index) {
+    const auto advanced = engine.step(1000);
+    expect(advanced.ok && finite_pose(advanced.payload), "Go2 thousands stable");
+  }
+  engine.reset(); const auto go2_a = engine.step(100).payload;
+  engine.reset(); const auto go2_b = engine.step(100).payload;
+  expect(go2_a["rootPosition"] == go2_b["rootPosition"] && go2_a["joints"] == go2_b["joints"],
+         "Go2 deterministic steps");
+  for (int index = 0; index < 10; ++index) {
+    expect(engine.load_model(index % 2 == 0 ? "minimal-quadruped-v1" : "unitree-go2-menagerie").ok,
+           "model switching");
+  }
+  expect(!engine.load_model("../unitree-go2-menagerie/unitree-go2-scene.xml").ok,
+         "path injection rejected");
+  sidecar::SimulationEngine missing_engine(std::filesystem::path(TEST_RESOURCE_ROOT) / "missing", [](Json) {});
+  const auto missing = missing_engine.load_model("unitree-go2-menagerie");
+  expect(!missing.ok && missing.code == "MODEL_LOAD_FAILED", "missing asset safe failure");
+  std::cout << "D4D2A_GO2_LOAD_MS=" << go2_load_ms << '\n';
+
   std::vector<std::string> protocol_events;
   sidecar::ProtocolHandler protocol(TEST_RESOURCE_ROOT, [&](std::string line) { protocol_events.push_back(std::move(line)); });
   auto hello = Json::parse(protocol.process_line(command("h", "hello", {{"clientName", "tauri-host"}, {"clientProtocolVersion", 1}})).response);
   expect(hello["type"] == "ready" && hello["payload"]["capabilities"].size() == 10, "hello capabilities");
   expect(Json::parse(protocol.process_line(command("l", "load_model", {{"modelId", "minimal-quadruped-v1"}})).response)["type"] == "model_loaded", "protocol load");
+  expect(Json::parse(protocol.process_line(command("lg", "load_model", {{"modelId", "unitree-go2-menagerie"}})).response)["type"] == "model_loaded", "protocol Go2 load");
   expect(Json::parse(protocol.process_line(command("s", "start", Json::object())).response)["payload"]["state"] == "running", "protocol start");
   expect(Json::parse(protocol.process_line(command("p", "pause", Json::object())).response)["payload"]["state"] == "paused", "protocol pause");
   expect(Json::parse(protocol.process_line(command("t", "step", {{"steps", 1}})).response)["type"] == "pose", "protocol step pose");

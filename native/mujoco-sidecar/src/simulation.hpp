@@ -68,7 +68,11 @@ class SimulationEngine {
   ModelPtr model_;
   DataPtr data_;
   std::vector<int> joint_qpos_addresses_;
+  std::vector<int> joint_dof_addresses_;
   std::vector<std::string> joint_names_;
+  std::vector<double> home_joint_positions_;
+  int home_keyframe_{-1};
+  bool test_pose_hold_{false};
   double speed_{1.0};
   std::uint32_t sequence_{0};
   unsigned int control_phase_{0};

@@ -1,7 +1,8 @@
 import { Application, Entity, Quat } from 'playcanvas'
-import type { RobotPose } from '../../../services/simulation/types'
-import { hasExactQuadrupedJoints, MinimalQuadrupedRig } from './MinimalQuadrupedRig'
-import type { RobotBounds } from './MinimalQuadrupedRig'
+import type { RobotPose, SimulationModelId } from '../../../services/simulation/types'
+import { DEFAULT_SIMULATION_MODEL_ID } from '../../../services/simulation/types'
+import { createRobotRig } from './RobotRigFactory'
+import type { RobotBounds, RobotRig } from './RobotRig'
 import { PoseInterpolator } from './PoseInterpolator'
 import { finitePoseScalars, normalizeQuaternionTuple } from './robotMath'
 
@@ -26,20 +27,23 @@ export const DEFAULT_ROBOT_CALIBRATION: RobotOverlayCalibration = {
 export class RobotOverlayRuntime {
   readonly overlayRoot: Entity
   readonly alignmentRoot: Entity
-  private readonly rig: MinimalQuadrupedRig
-  private readonly interpolator = new PoseInterpolator()
+  private readonly app: Application
+  private rig: RobotRig
+  private interpolator: PoseInterpolator
   private visible = false
   private hasPose = false
   private sequence: number | null = null
   private contextLost = false
   private disposed = false
 
-  constructor(app: Application) {
+  constructor(app: Application, modelId: SimulationModelId = DEFAULT_SIMULATION_MODEL_ID) {
+    this.app = app
     this.overlayRoot = new Entity('Robot Overlay Root', app)
     this.alignmentRoot = new Entity('Simulation Alignment Root', app)
     app.root.addChild(this.overlayRoot)
     this.overlayRoot.addChild(this.alignmentRoot)
-    this.rig = new MinimalQuadrupedRig(app, this.alignmentRoot)
+    this.rig = createRobotRig(modelId, app, this.alignmentRoot)
+    this.interpolator = new PoseInterpolator(.032, this.rig.jointNames)
     this.overlayRoot.enabled = false
   }
 
@@ -50,7 +54,7 @@ export class RobotOverlayRuntime {
   }
 
   updatePose(pose: RobotPose, immediate = false): boolean {
-    if (this.disposed || !hasExactQuadrupedJoints(pose) || !finitePoseScalars(pose)) return false
+    if (this.disposed || !this.rig.acceptsPose(pose) || !finitePoseScalars(pose)) return false
     const accepted = this.interpolator.push(pose)
     if (!accepted) return false
     this.hasPose = true
@@ -72,6 +76,15 @@ export class RobotOverlayRuntime {
     this.hasPose = false
     this.sequence = null
     this.overlayRoot.enabled = false
+  }
+
+  setModel(modelId: SimulationModelId): void {
+    if (this.disposed || this.rig.modelId === modelId) return
+    this.clearPose()
+    this.interpolator.dispose()
+    this.rig.dispose()
+    this.rig = createRobotRig(modelId, this.app, this.alignmentRoot)
+    this.interpolator = new PoseInterpolator(.032, this.rig.jointNames)
   }
 
   setContextLost(lost: boolean): void {

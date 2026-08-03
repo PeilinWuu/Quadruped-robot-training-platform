@@ -5,11 +5,12 @@ import type {
   SimulationState, SimulationStatus, SimulationSubscription,
 } from '../types'
 
-const MODEL: ModelMetadata = { modelId: 'minimal-quadruped-v1', timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 14 }
+const MODEL: ModelMetadata = { modelId: 'unitree-go2-menagerie', timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 18 }
+const JOINTS = ['FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint', 'FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint', 'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint', 'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint']
 const POSE: RobotPose = {
   sequence: 1, simulationTime: .002, wallTime: 100,
   rootPosition: [1, 2, 3], rootOrientation: [0, 0, 0, 1],
-  joints: Array.from({ length: 12 }, (_, index) => ({ name: `joint-${index}`, position: index / 10 })),
+  joints: JOINTS.map((name, index) => ({ name, position: index / 10 })),
 }
 
 function fakeAdapter(initial?: Partial<SimulationStatus>) {
@@ -27,7 +28,7 @@ function fakeAdapter(initial?: Partial<SimulationStatus>) {
     startSidecar: vi.fn(async () => { calls.push('startSidecar'); status = { ...status, state: 'ready', sidecarVersion: 'test' }; return { ...status } }),
     ping: vi.fn(async () => ({ latencyMs: 1, nonceVerified: true })),
     stopSidecar: vi.fn(async () => { calls.push('stopSidecar'); status = { ...status, state: 'idle', simulationState: 'unloaded', model: null }; return { ...status } }),
-    loadDefaultModel: vi.fn(async () => { calls.push('loadModel'); status = { ...status, model: MODEL, simulationState: 'loaded' }; return MODEL }),
+    loadModel: vi.fn(async (modelId) => { calls.push(`loadModel:${modelId}`); status = { ...status, model: { ...MODEL, modelId }, simulationState: 'loaded' }; return { ...MODEL, modelId } }),
     startSimulation: vi.fn(async () => { calls.push('start'); return state('running') }),
     pauseSimulation: vi.fn(async () => { calls.push('pause'); return state('paused') }),
     stepSimulation: vi.fn(async (steps) => { calls.push(`step:${steps}`); return POSE }),
@@ -50,7 +51,7 @@ describe('ManagedSimulationService', () => {
 
   it('starts sidecar, loads model, subscribes, then starts physics', async () => {
     const status = await service.start()
-    expect(fake.calls).toEqual(['startSidecar', 'loadModel', 'subscribe', 'start'])
+    expect(fake.calls).toEqual(['startSidecar', 'loadModel:unitree-go2-menagerie', 'subscribe', 'start'])
     expect(status.simulationState).toBe('running')
   })
 
@@ -108,5 +109,24 @@ describe('ManagedSimulationService', () => {
     fake.emit({ type: 'pose', payload: POSE })
     expect(service.getBufferedPose()).toBe(POSE)
     expect(good).toHaveBeenCalledWith({ type: 'pose', payload: POSE })
+  })
+  it('defaults to the fixed Go2 model list and blocks running model switches', async () => {
+    expect(service.getSelectedModel().id).toBe('unitree-go2-menagerie')
+    expect(service.listAvailableModels().map((model) => model.id)).toEqual(['unitree-go2-menagerie', 'minimal-quadruped-v1'])
+    fake = fakeAdapter({ state: 'ready', simulationState: 'running', model: MODEL })
+    service = new ManagedSimulationService(async () => fake.adapter)
+    await expect(service.selectModel('minimal-quadruped-v1')).rejects.toThrow('运行中')
+    expect(fake.adapter.loadModel).not.toHaveBeenCalled()
+  })
+
+  it('switches a stopped model and drops stale Go2 poses', async () => {
+    fake = fakeAdapter({ state: 'ready', simulationState: 'stopped', model: MODEL })
+    service = new ManagedSimulationService(async () => fake.adapter)
+    await service.selectModel('minimal-quadruped-v1')
+    expect(fake.calls).toEqual(['loadModel:minimal-quadruped-v1'])
+    const listener = vi.fn(); service.onPose(listener)
+    fake.emit({ type: 'pose', payload: POSE })
+    expect(service.getBufferedPose()).toBeNull()
+    expect(listener).not.toHaveBeenCalled()
   })
 })

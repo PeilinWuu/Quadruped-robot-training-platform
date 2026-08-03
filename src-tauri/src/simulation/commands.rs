@@ -50,10 +50,11 @@ pub async fn simulation_sidecar_stop(
 
 #[tauri::command]
 pub async fn simulation_load_model(
+    model_id: String,
     manager: State<'_, SimulationManager>,
 ) -> Result<ModelLoadedPayload, SimulationError> {
     let manager = manager.inner().clone();
-    run_blocking(move || manager.load_model()).await
+    run_blocking(move || manager.load_model(&model_id)).await
 }
 #[tauri::command]
 pub async fn simulation_run_start(

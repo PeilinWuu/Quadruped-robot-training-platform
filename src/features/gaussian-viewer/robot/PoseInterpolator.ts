@@ -10,10 +10,15 @@ interface BufferedPose { pose: RobotPose; receivedAt: number; joints: Float64Arr
 export class PoseInterpolator {
   private previous: BufferedPose | null = null
   private latest: BufferedPose | null = null
-  private readonly jointIndex = new Map(JOINT_NAMES.map((name, index) => [name, index]))
+  private readonly jointNames: readonly string[]
+  private readonly jointIndex: Map<string, number>
   readonly delaySeconds: number
 
-  constructor(delaySeconds = 0.032) { this.delaySeconds = delaySeconds }
+  constructor(delaySeconds = 0.032, jointNames: readonly string[] = JOINT_NAMES) {
+    this.delaySeconds = delaySeconds
+    this.jointNames = jointNames
+    this.jointIndex = new Map(jointNames.map((name, index) => [name, index]))
+  }
 
   push(pose: RobotPose, receivedAt = performance.now() / 1000): boolean {
     const normalized = this.validate(pose, receivedAt)
@@ -48,7 +53,7 @@ export class PoseInterpolator {
       latest.pose.rootOrientation,
       amount,
     )
-    const joints: JointPose[] = JOINT_NAMES.map((name, index) => ({
+    const joints: JointPose[] = this.jointNames.map((name, index) => ({
       name,
       position: shortestAngleLerp(previous.joints[index], latest.joints[index], amount),
     }))
@@ -71,13 +76,13 @@ export class PoseInterpolator {
 
   private validate(pose: RobotPose, receivedAt: number): BufferedPose | null {
     if (!finitePoseScalars(pose) || !Number.isFinite(receivedAt)
-      || pose.joints.length !== JOINT_NAMES.length) return null
+      || pose.joints.length !== this.jointNames.length) return null
     const orientation = normalizeQuaternionTuple(pose.rootOrientation)
     if (!orientation) return null
-    const joints = new Float64Array(JOINT_NAMES.length)
+    const joints = new Float64Array(this.jointNames.length)
     const seen = new Set<string>()
     for (const joint of pose.joints) {
-      const index = this.jointIndex.get(joint.name as typeof JOINT_NAMES[number])
+      const index = this.jointIndex.get(joint.name)
       if (index === undefined || seen.has(joint.name)) return null
       seen.add(joint.name)
       joints[index] = joint.position
@@ -89,7 +94,7 @@ export class PoseInterpolator {
         ...pose,
         rootPosition: [...pose.rootPosition],
         rootOrientation: orientation,
-        joints: JOINT_NAMES.map((name, index) => ({ name, position: joints[index] })),
+        joints: this.jointNames.map((name, index) => ({ name, position: joints[index] })),
       },
     }
   }

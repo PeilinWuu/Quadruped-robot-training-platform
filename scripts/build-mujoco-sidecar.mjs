@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, lstatSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -26,14 +26,25 @@ function copyAndVerify(source, target) {
   copyFileSync(source, target)
   if (!existsSync(target) || statSync(target).size !== statSync(source).size) throw new Error(`Copied resource failed size verification: ${target}`)
 }
+function copyDirectoryVerified(source, target) {
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name); const to = join(target, entry.name)
+    if (lstatSync(from).isSymbolicLink()) throw new Error(`Symlink resource rejected: ${entry.name}`)
+    if (entry.isDirectory()) copyDirectoryVerified(from, to)
+    else if (entry.isFile()) copyAndVerify(from, to)
+    else throw new Error(`Non-regular resource rejected: ${entry.name}`)
+  }
+}
 function copyRuntimeResources(root) {
   copyAndVerify(builtExecutable, join(root, 'resources', 'sidecar', executableName))
   copyAndVerify(sourceDll, join(root, 'resources', 'sidecar', dllName))
   copyAndVerify(join(repositoryRoot, 'src-tauri', 'resources', 'simulation', 'models', 'minimal-quadruped-v1.xml'), join(root, 'resources', 'simulation', 'models', 'minimal-quadruped-v1.xml'))
+  copyDirectoryVerified(join(repositoryRoot, 'src-tauri', 'resources', 'simulation', 'models', 'unitree-go2-menagerie'), join(root, 'resources', 'simulation', 'models', 'unitree-go2-menagerie'))
   copyAndVerify(join(repositoryRoot, 'src-tauri', 'resources', 'licenses', 'MuJoCo-Apache-2.0.txt'), join(root, 'resources', 'licenses', 'MuJoCo-Apache-2.0.txt'))
 }
 
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('D4C sidecar builds require Windows x64')
+run(process.execPath, [join(scriptDirectory, 'verify-go2-menagerie.mjs')])
 if (!existsSync(join(mujocoRoot, '.verified-sha256'))) {
   console.log('Verified MuJoCo cache is missing; fetching pinned MuJoCo 3.11.0...')
   run(process.execPath, [join(scriptDirectory, 'fetch-mujoco.mjs')])

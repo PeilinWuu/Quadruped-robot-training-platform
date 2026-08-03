@@ -7,7 +7,40 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_LINE_BYTES: usize = 256 * 1024;
 const MAX_REQUEST_ID_BYTES: usize = 64;
 const EXPECTED_JOINTS: usize = 12;
-pub const MODEL_ID: &str = "minimal-quadruped-v1";
+pub const MINIMAL_MODEL_ID: &str = "minimal-quadruped-v1";
+pub const GO2_MODEL_ID: &str = "unitree-go2-menagerie";
+pub const MINIMAL_JOINT_NAMES: [&str; 12] = [
+    "front_left_hip_abduction",
+    "front_left_hip_flexion",
+    "front_left_knee",
+    "front_right_hip_abduction",
+    "front_right_hip_flexion",
+    "front_right_knee",
+    "rear_left_hip_abduction",
+    "rear_left_hip_flexion",
+    "rear_left_knee",
+    "rear_right_hip_abduction",
+    "rear_right_hip_flexion",
+    "rear_right_knee",
+];
+pub const GO2_JOINT_NAMES: [&str; 12] = [
+    "FL_hip_joint",
+    "FL_thigh_joint",
+    "FL_calf_joint",
+    "FR_hip_joint",
+    "FR_thigh_joint",
+    "FR_calf_joint",
+    "RL_hip_joint",
+    "RL_thigh_joint",
+    "RL_calf_joint",
+    "RR_hip_joint",
+    "RR_thigh_joint",
+    "RR_calf_joint",
+];
+
+pub fn valid_model_id(value: &str) -> bool {
+    matches!(value, MINIMAL_MODEL_ID | GO2_MODEL_ID)
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,7 +58,7 @@ pub enum ProtocolCommand {
     Hello,
     Ping { nonce: String },
     Shutdown,
-    LoadModel,
+    LoadModel { model_id: String },
     Start,
     Pause,
     Step { steps: u16 },
@@ -43,7 +76,15 @@ impl ProtocolCommand {
             ),
             Self::Ping { nonce } => ("ping", json!({"nonce":nonce})),
             Self::Shutdown => ("shutdown", json!({})),
-            Self::LoadModel => ("load_model", json!({"modelId":MODEL_ID})),
+            Self::LoadModel { model_id } => {
+                if !valid_model_id(model_id) {
+                    return Err(SimulationError::new(
+                        "UNKNOWN_MODEL",
+                        "The simulation model is not allowed.",
+                    ));
+                }
+                ("load_model", json!({"modelId":model_id}))
+            }
             Self::Start => ("start", json!({})),
             Self::Pause => ("pause", json!({})),
             Self::Step { steps } => ("step", json!({"steps":steps})),
@@ -143,6 +184,18 @@ impl RobotPose {
             }
         }
         Ok(())
+    }
+
+    pub fn has_model_joints(&self, model_id: &str) -> bool {
+        let expected = match model_id {
+            MINIMAL_MODEL_ID => &MINIMAL_JOINT_NAMES,
+            GO2_MODEL_ID => &GO2_JOINT_NAMES,
+            _ => return false,
+        };
+        self.joints
+            .iter()
+            .map(|joint| joint.name.as_str())
+            .eq(expected.iter().copied())
     }
 }
 
@@ -267,7 +320,7 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
         "model_loaded" => {
             let p: ModelLoadedPayload =
                 serde_json::from_value(raw.payload).map_err(|_| SimulationError::protocol())?;
-            if p.model_id != MODEL_ID
+            if !valid_model_id(&p.model_id)
                 || (p.timestep - 0.002).abs() > 1e-12
                 || p.joint_count != 12
                 || p.actuator_count != 12

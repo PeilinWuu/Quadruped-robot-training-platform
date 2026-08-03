@@ -2,7 +2,7 @@ use super::{
     manager::{LifecycleState, SimulationManager},
     protocol::{
         parse_response_line, sequence_is_newer, ProtocolCommand, ProtocolResponse, RobotPose,
-        SimulationState, MODEL_ID,
+        SimulationState, MINIMAL_MODEL_ID,
     },
 };
 use serde_json::{json, Value};
@@ -25,7 +25,7 @@ fn manager_starts_idle_and_unloaded() {
 }
 #[test]
 fn model_loaded_parses() {
-    let m = parse_response_line(&envelope("model_loaded",json!({"modelId":MODEL_ID,"timestep":0.002,"jointCount":12,"actuatorCount":12,"bodyCount":14}))).unwrap();
+    let m = parse_response_line(&envelope("model_loaded",json!({"modelId":MINIMAL_MODEL_ID,"timestep":0.002,"jointCount":12,"actuatorCount":12,"bodyCount":14}))).unwrap();
     assert!(matches!(m.response, ProtocolResponse::ModelLoaded(_)));
 }
 #[test]
@@ -147,9 +147,32 @@ fn speed_invalid_values() {
 }
 #[test]
 fn load_command_contains_only_fixed_model_id() {
-    let line = ProtocolCommand::LoadModel.to_line("r".into(), 1).unwrap();
-    assert!(line.contains(MODEL_ID));
+    let line = ProtocolCommand::LoadModel {
+        model_id: MINIMAL_MODEL_ID.into(),
+    }
+    .to_line("r".into(), 1)
+    .unwrap();
+    assert!(line.contains(MINIMAL_MODEL_ID));
     assert!(!line.contains(".."));
+}
+
+#[test]
+fn load_command_accepts_go2_and_rejects_unlisted_models() {
+    let line = ProtocolCommand::LoadModel {
+        model_id: super::protocol::GO2_MODEL_ID.into(),
+    }
+    .to_line("go2".into(), 1)
+    .unwrap();
+    assert!(line.contains(super::protocol::GO2_MODEL_ID));
+    assert_eq!(
+        ProtocolCommand::LoadModel {
+            model_id: "../go2.xml".into()
+        }
+        .to_line("bad".into(), 1)
+        .unwrap_err()
+        .code,
+        "UNKNOWN_MODEL"
+    );
 }
 #[test]
 fn process_stop_and_simulation_stop_are_distinct() {

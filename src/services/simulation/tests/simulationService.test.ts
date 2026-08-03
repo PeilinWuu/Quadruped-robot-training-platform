@@ -43,10 +43,11 @@ describe('simulation adapters', () => {
   it('maps model and run controls with typed arguments', async () => {
     mocks.invoke.mockResolvedValue({})
     const { tauriSimulationAdapter: adapter } = await import('../tauriSimulationAdapter')
-    await adapter.loadDefaultModel(); await adapter.startSimulation(); await adapter.pauseSimulation()
+    await adapter.loadModel('unitree-go2-menagerie'); await adapter.startSimulation(); await adapter.pauseSimulation()
     await adapter.stepSimulation(3); await adapter.resetSimulation(); await adapter.setSpeed(2)
     expect(mocks.invoke).toHaveBeenCalledWith('simulation_run_step', { steps: 3 })
     expect(mocks.invoke).toHaveBeenCalledWith('simulation_set_speed', { speed: 2 })
+    expect(mocks.invoke).toHaveBeenCalledWith('simulation_load_model', { modelId: 'unitree-go2-menagerie' })
   })
 
   it('delivers a strongly typed channel event', async () => {

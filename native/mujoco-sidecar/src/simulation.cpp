@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <system_error>
 
 namespace sidecar {
@@ -11,11 +12,34 @@ using Json = nlohmann::json;
 constexpr double kTimestep = 0.002;
 constexpr double kPosePeriod = 1.0 / 60.0;
 constexpr int kMaximumCatchupSteps = 10;
-constexpr std::array<const char*, 12> kJointNames = {
+constexpr std::array<const char*, 12> kMinimalJointNames = {
     "front_left_hip_abduction", "front_left_hip_flexion", "front_left_knee",
     "front_right_hip_abduction", "front_right_hip_flexion", "front_right_knee",
     "rear_left_hip_abduction", "rear_left_hip_flexion", "rear_left_knee",
     "rear_right_hip_abduction", "rear_right_hip_flexion", "rear_right_knee"};
+constexpr std::array<const char*, 12> kGo2JointNames = {
+    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"};
+
+struct ModelDefinition {
+  std::filesystem::path relative_path;
+  const std::array<const char*, 12>* joints;
+  bool test_pose_hold;
+};
+
+std::optional<ModelDefinition> model_definition(const std::string& model_id) {
+  if (model_id == "minimal-quadruped-v1") {
+    return ModelDefinition{std::filesystem::path("resources") / "simulation" /
+      "models" / "minimal-quadruped-v1.xml", &kMinimalJointNames, false};
+  }
+  if (model_id == "unitree-go2-menagerie") {
+    return ModelDefinition{std::filesystem::path("resources") / "simulation" /
+      "models" / "unitree-go2-menagerie" / "unitree-go2-scene.xml", &kGo2JointNames, true};
+  }
+  return std::nullopt;
+}
 
 std::int64_t unix_milliseconds() {
   const auto now = std::chrono::system_clock::now().time_since_epoch();
@@ -81,20 +105,22 @@ void SimulationEngine::shutdown() {
 }
 
 EngineResult SimulationEngine::load_model(const std::string& model_id) {
-  if (model_id != "minimal-quadruped-v1") return error("UNKNOWN_MODEL");
-  const auto relative = std::filesystem::path("resources") / "simulation" / "models" /
-                        "minimal-quadruped-v1.xml";
+  const auto definition = model_definition(model_id);
+  if (!definition) return error("UNKNOWN_MODEL");
+  {
+    std::lock_guard lock(mutex_);
+    if (state_ == SimulationState::running) state_ = SimulationState::stopped;
+  }
+  condition_.notify_all();
   std::error_code ec;
   const auto root = std::filesystem::canonical(resource_root_, ec);
   if (ec) return error("MODEL_LOAD_FAILED");
-  const auto path = std::filesystem::canonical(root / relative, ec);
+  const auto path = std::filesystem::canonical(root / definition->relative_path, ec);
   const auto resolved_relative = std::filesystem::relative(path, root, ec);
   const bool escapes_root = ec || resolved_relative.is_absolute() ||
       std::any_of(resolved_relative.begin(), resolved_relative.end(),
                   [](const auto& component) { return component == ".."; });
-  if (escapes_root) {
-    return error("MODEL_LOAD_FAILED");
-  }
+  if (escapes_root || !std::filesystem::is_regular_file(path, ec) || ec) return error("MODEL_LOAD_FAILED");
   char load_error[1024]{};
   ModelPtr candidate(mj_loadXML(path.string().c_str(), nullptr, load_error, sizeof(load_error)));
   if (!candidate) return error("MODEL_LOAD_FAILED");
@@ -103,23 +129,53 @@ EngineResult SimulationEngine::load_model(const std::string& model_id) {
       std::abs(candidate->opt.timestep - kTimestep) > 1e-12 || candidate->nu != 12) {
     return error("MODEL_LOAD_FAILED");
   }
-  std::vector<int> addresses;
-  for (const char* name : kJointNames) {
+  std::vector<int> qpos_addresses;
+  std::vector<int> dof_addresses;
+  for (const char* name : *definition->joints) {
     const int id = mj_name2id(candidate.get(), mjOBJ_JOINT, name);
     if (id < 0 || candidate->jnt_type[id] != mjJNT_HINGE) return error("MODEL_LOAD_FAILED");
-    addresses.push_back(candidate->jnt_qposadr[id]);
+    if (model_id == "unitree-go2-menagerie") {
+      const std::size_t index = qpos_addresses.size();
+      const std::array<double, 3> expected_axis = index % 3 == 0
+          ? std::array<double, 3>{1.0, 0.0, 0.0}
+          : std::array<double, 3>{0.0, 1.0, 0.0};
+      for (std::size_t component = 0; component < expected_axis.size(); ++component) {
+        if (std::abs(candidate->jnt_axis[id * 3 + static_cast<int>(component)] -
+                     expected_axis[component]) > 1e-12) return error("MODEL_LOAD_FAILED");
+      }
+    }
+    qpos_addresses.push_back(candidate->jnt_qposadr[id]);
+    dof_addresses.push_back(candidate->jnt_dofadr[id]);
   }
+  int free_joints = 0;
+  for (int index = 0; index < candidate->njnt; ++index) if (candidate->jnt_type[index] == mjJNT_FREE) ++free_joints;
+  const int home_keyframe = mj_name2id(candidate.get(), mjOBJ_KEY, "home");
+  if (free_joints != 1 || home_keyframe < 0) return error("MODEL_LOAD_FAILED");
+  for (int index = 0; index < candidate->nu; ++index) {
+    const int joint_id = mj_name2id(candidate.get(), mjOBJ_JOINT, (*definition->joints)[static_cast<std::size_t>(index)]);
+    if (candidate->actuator_trntype[index] != mjTRN_JOINT || candidate->actuator_trnid[index * 2] != joint_id) {
+      return error("MODEL_LOAD_FAILED");
+    }
+  }
+  mj_resetDataKeyframe(candidate.get(), candidate_data.get(), home_keyframe);
+  mj_forward(candidate.get(), candidate_data.get());
+  std::vector<double> home_positions;
+  for (const int address : qpos_addresses) home_positions.push_back(candidate_data->qpos[address]);
   {
     std::lock_guard lock(mutex_);
     state_ = SimulationState::loaded;
     model_ = std::move(candidate);
     data_ = std::move(candidate_data);
-    joint_qpos_addresses_ = std::move(addresses);
-    joint_names_.assign(kJointNames.begin(), kJointNames.end());
+    joint_qpos_addresses_ = std::move(qpos_addresses);
+    joint_dof_addresses_ = std::move(dof_addresses);
+    joint_names_.assign(definition->joints->begin(), definition->joints->end());
+    home_joint_positions_ = std::move(home_positions);
+    home_keyframe_ = home_keyframe;
+    test_pose_hold_ = definition->test_pose_hold;
     sequence_ = 0;
     control_phase_ = 0;
     speed_ = 1.0;
-    mj_resetDataKeyframe(model_.get(), data_.get(), 0);
+    mj_resetDataKeyframe(model_.get(), data_.get(), home_keyframe_);
     mj_forward(model_.get(), data_.get());
     latest_pose_ = pose_locked(false);
     return {true, Json{{"modelId", model_id}, {"timestep", model_->opt.timestep},
@@ -168,7 +224,7 @@ EngineResult SimulationEngine::reset() {
   {
     std::lock_guard lock(mutex_);
     if (!model_ || state_ == SimulationState::running) return invalid_state();
-    mj_resetDataKeyframe(model_.get(), data_.get(), 0);
+    mj_resetDataKeyframe(model_.get(), data_.get(), home_keyframe_);
     mj_forward(model_.get(), data_.get());
     sequence_ = 0;
     control_phase_ = 0;
@@ -211,7 +267,20 @@ Json SimulationEngine::pose_locked(const bool advance_sequence) {
 }
 
 void SimulationEngine::step_once_locked() {
-  if (control_phase_ == 0 && model_->nkey > 0 && model_->key_ctrl != nullptr) {
+  if (test_pose_hold_) {
+    // Menagerie Go2 uses direct-torque motor actuators. This bounded PD term is only a
+    // stationary preview hold; it is deliberately not presented as a gait controller.
+    constexpr double kPositionGain = 35.0;
+    constexpr double kVelocityGain = 1.5;
+    for (int index = 0; index < model_->nu; ++index) {
+      const double target = home_joint_positions_[static_cast<std::size_t>(index)];
+      const double position = data_->qpos[joint_qpos_addresses_[static_cast<std::size_t>(index)]];
+      const double velocity = data_->qvel[joint_dof_addresses_[static_cast<std::size_t>(index)]];
+      const double effort = kPositionGain * (target - position) - kVelocityGain * velocity;
+      data_->ctrl[index] = std::clamp(effort, model_->actuator_ctrlrange[index * 2],
+                                     model_->actuator_ctrlrange[index * 2 + 1]);
+    }
+  } else if (control_phase_ == 0 && model_->nkey > 0 && model_->key_ctrl != nullptr) {
     for (int index = 0; index < model_->nu; ++index) data_->ctrl[index] = model_->key_ctrl[index];
   }
   control_phase_ = (control_phase_ + 1U) % 5U;

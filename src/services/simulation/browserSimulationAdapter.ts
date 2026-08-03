@@ -16,7 +16,7 @@ export const browserSimulationAdapter: SimulationAdapter = {
   getStatus: async () => ({ ...STATUS }),
   ping: unavailable,
   stopSidecar: unavailable,
-  loadDefaultModel: unavailable,
+  loadModel: unavailable,
   startSimulation: unavailable,
   pauseSimulation: unavailable,
   stepSimulation: unavailable,

@@ -21,7 +21,7 @@ import type {
 } from '../types'
 import { MAX_SCENE_BYTES } from '../types'
 import { PlayCanvasCameraController } from './PlayCanvasCameraController'
-import type { RobotPose } from '../../../services/simulation/types'
+import type { RobotPose, SimulationModelId } from '../../../services/simulation/types'
 import {
   RobotOverlayRuntime,
 } from '../robot/RobotOverlayRuntime'
@@ -243,6 +243,12 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   setRobotVisible(visible: boolean): void {
     this.robotOverlay?.setVisible(visible)
+    this.updateControlsEnabled()
+    this.requestRender()
+  }
+
+  setRobotModel(modelId: SimulationModelId): void {
+    this.robotOverlay?.setModel(modelId)
     this.updateControlsEnabled()
     this.requestRender()
   }

@@ -3,12 +3,13 @@ import {
 } from 'playcanvas'
 import type { RobotPose } from '../../../services/simulation/types'
 import { JOINT_NAMES, LEGS } from './minimalQuadrupedModel'
+import type { RobotRig, RobotBounds } from './RobotRig'
 
 interface LegEntities { abduction: Entity; flexion: Entity; knee: Entity }
 
-export interface RobotBounds { center: [number, number, number]; radius: number }
-
-export class MinimalQuadrupedRig {
+export class MinimalQuadrupedRig implements RobotRig {
+  readonly modelId = 'minimal-quadruped-v1' as const
+  readonly jointNames = JOINT_NAMES
   readonly robotRoot: Entity
   readonly primitiveCount = 18
   readonly entityCount = 31
@@ -58,6 +59,7 @@ export class MinimalQuadrupedRig {
       this.rotate(leg.knee, this.axisNegativeZ, values.get(definition.joints[2]) ?? 0)
     }
   }
+  acceptsPose(pose: RobotPose): boolean { return hasExactQuadrupedJoints(pose) }
 
   getBounds(): RobotBounds {
     if (this.boundsEntities.length === 0) return { center: [0, 0, 0], radius: 0 }

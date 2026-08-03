@@ -1,12 +1,16 @@
 import { browserSimulationAdapter } from './browserSimulationAdapter'
 import type {
   RobotPose,
+  ModelMetadata,
   SimulationAdapter,
   SimulationEvent,
   SimulationListener,
   SimulationStatus,
   SimulationSubscription,
+  SimulationModelDescription,
+  SimulationModelId,
 } from './types'
+import { DEFAULT_SIMULATION_MODEL_ID, SIMULATION_MODELS } from './types'
 
 let adapterPromise: Promise<SimulationAdapter> | null = null
 
@@ -31,6 +35,7 @@ export class ManagedSimulationService {
   private subscription: SimulationSubscription | null = null
   private subscriptionPromise: Promise<void> | null = null
   private latestPose: RobotPose | null = null
+  private selectedModelId: SimulationModelId = DEFAULT_SIMULATION_MODEL_ID
   private readonly poseListeners = new Set<PoseListener>()
   private readonly eventListeners = new Set<SimulationListener>()
   private queue: Promise<void> = Promise.resolve()
@@ -41,6 +46,30 @@ export class ManagedSimulationService {
 
   get desktop(): boolean { return simulationDesktopSupported() }
   getBufferedPose(): RobotPose | null { return this.latestPose }
+  listAvailableModels(): readonly SimulationModelDescription[] { return SIMULATION_MODELS }
+  getSelectedModel(): SimulationModelDescription {
+    return SIMULATION_MODELS.find((model) => model.id === this.selectedModelId)!
+  }
+  selectModel(modelId: SimulationModelId): Promise<SimulationStatus> {
+    if (!SIMULATION_MODELS.some((model) => model.id === modelId)) return Promise.reject(new Error('不支持的仿真模型'))
+    return this.serial(async () => {
+      const adapter = await this.adapterForUse()
+      const status = await adapter.getStatus()
+      if (status.simulationState === 'running') throw new Error('仿真运行中不能切换模型，请先停止')
+      this.selectedModelId = modelId
+      this.latestPose = null
+      if (status.state !== 'ready') return status
+      if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
+      await adapter.loadModel(modelId)
+      return adapter.getStatus()
+    })
+  }
+  loadSelectedModel(): Promise<ModelMetadata> {
+    return this.withAdapter(async (adapter) => {
+      this.latestPose = null
+      return adapter.loadModel(this.selectedModelId)
+    })
+  }
   onPose(listener: PoseListener): () => void {
     this.poseListeners.add(listener)
     return () => this.poseListeners.delete(listener)
@@ -59,8 +88,9 @@ export class ManagedSimulationService {
       const adapter = await this.adapterForUse()
       let status = await adapter.getStatus()
       if (status.state !== 'ready') status = await adapter.startSidecar()
-      if (!status.model) {
-        await adapter.loadDefaultModel()
+      if (status.model?.modelId !== this.selectedModelId) {
+        if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
+        await adapter.loadModel(this.selectedModelId)
         status = await adapter.getStatus()
       }
       await this.ensureSubscription(adapter)
@@ -164,6 +194,8 @@ export class ManagedSimulationService {
   }
   private dispatch(event: SimulationEvent): void {
     if (event.type === 'pose') {
+      const expected = this.selectedModelId === 'unitree-go2-menagerie' ? ['FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint', 'FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint', 'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint', 'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint'] : ['front_left_hip_abduction', 'front_left_hip_flexion', 'front_left_knee', 'front_right_hip_abduction', 'front_right_hip_flexion', 'front_right_knee', 'rear_left_hip_abduction', 'rear_left_hip_flexion', 'rear_left_knee', 'rear_right_hip_abduction', 'rear_right_hip_flexion', 'rear_right_knee']
+      if (event.payload.joints.length !== expected.length || event.payload.joints.some((joint, index) => joint.name !== expected[index])) return
       this.latestPose = event.payload
       for (const listener of this.poseListeners) {
         try { listener(event.payload) } catch { /* Render listeners are isolated. */ }

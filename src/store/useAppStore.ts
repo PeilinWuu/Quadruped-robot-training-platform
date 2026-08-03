@@ -6,8 +6,9 @@ import type {
 import { services } from '../services'
 import type {
   JointPose, ModelMetadata, RobotPose, SimulationEvent, SimulationProcessState,
-  SimulationState, SimulationStatus,
+  SimulationState, SimulationStatus, SimulationModelId,
 } from '../services/simulation/types'
+import { DEFAULT_SIMULATION_MODEL_ID } from '../services/simulation/types'
 
 export interface SimulationPoseSummary {
   sequence: number
@@ -20,6 +21,7 @@ export interface SimulationPoseSummary {
 
 export interface SimulationUiState {
   desktop: boolean
+  selectedModelId: SimulationModelId
   processState: SimulationProcessState
   simulationState: SimulationState
   model: ModelMetadata | null
@@ -42,10 +44,12 @@ interface AppState {
   resumeSimulation: () => Promise<SimulationActionResult>; stepSimulation: () => Promise<SimulationActionResult>
   resetSimulation: () => Promise<SimulationActionResult>; stopSimulation: () => Promise<SimulationActionResult>
   setSimulationSpeed: (speed: number) => Promise<SimulationActionResult>; shutdownSimulation: () => Promise<void>
+  selectSimulationModel: (modelId: SimulationModelId) => Promise<SimulationActionResult>
 }
 
 const INITIAL_SIMULATION: SimulationUiState = {
   desktop: services.simulation.desktop,
+  selectedModelId: DEFAULT_SIMULATION_MODEL_ID,
   processState: services.simulation.desktop ? 'idle' : 'unavailable',
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
   latestPose: null, busy: false,
@@ -70,6 +74,8 @@ function statusPatch(status: SimulationStatus): Partial<SimulationUiState> {
     model: status.model,
     speed: status.speed,
     lastError: status.error ? '仿真服务报告错误，请重试或重新启动仿真' : null,
+    ...(status.model && ['unitree-go2-menagerie', 'minimal-quadruped-v1'].includes(status.model.modelId)
+      ? { selectedModelId: status.model.modelId as SimulationModelId } : {}),
   }
 }
 
@@ -130,6 +136,7 @@ export const useAppStore = create<AppState>((set, get) => {
     resetSimulation: () => runSimulationAction(() => services.simulation.reset()),
     stopSimulation: () => runSimulationAction(() => services.simulation.stop()),
     setSimulationSpeed: (nextSpeed) => runSimulationAction(() => services.simulation.setSpeed(nextSpeed)),
+    selectSimulationModel: (modelId) => runSimulationAction(() => services.simulation.selectModel(modelId)),
     shutdownSimulation: async () => {
       clearSimulationBridge()
       try {
@@ -165,7 +172,7 @@ function handleSimulationEvent(event: SimulationEvent): void {
     return
   }
   if (event.type === 'model_loaded') {
-    useAppStore.setState((state) => ({ simulation: { ...state.simulation, model: event.payload } }))
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null } }))
   } else if (event.type === 'state_changed') {
     useAppStore.setState((state) => ({ simulation: {
       ...state.simulation,

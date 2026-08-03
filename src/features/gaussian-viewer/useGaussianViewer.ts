@@ -407,7 +407,10 @@ export function useGaussianViewer() {
       }
     })
     const removeEventListener = simulationService.onEvent((event) => {
-      if (event.type === 'error') {
+      if (event.type === 'model_loaded') {
+        runtimeRef.current?.setRobotModel?.(event.payload.modelId as 'unitree-go2-menagerie' | 'minimal-quadruped-v1')
+        runtimeRef.current?.clearRobotPose?.()
+      } else if (event.type === 'error') {
         runtimeRef.current?.setRobotVisible?.(false)
         runtimeRef.current?.clearRobotPose?.()
       }
@@ -510,6 +513,7 @@ export function useGaussianViewer() {
 
         runtime = nextRuntime
         runtimeRef.current = nextRuntime
+        runtime.setRobotModel?.(simulationService.getSelectedModel().id)
         runtime.setRobotCalibration?.(robotCalibrationRef.current)
         runtime.setRobotVisible?.(robotVisibleRef.current)
         const bufferedPose = simulationService.getBufferedPose()

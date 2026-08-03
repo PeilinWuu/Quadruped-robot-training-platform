@@ -1,11 +1,13 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Box, Camera, Crosshair, Expand, Eye, Pause, Play, RefreshCw, SkipForward, Square, Video } from 'lucide-react'
-import { Dropdown, Segmented, Tooltip } from 'antd'
+import { Dropdown, Segmented, Select, Tooltip } from 'antd'
 import { useAppStore, type SimulationActionResult } from '../store/useAppStore'
+import { SIMULATION_MODELS, type SimulationModelId } from '../services/simulation/types'
 
 const GaussianViewport = lazy(() => import('../features/gaussian-viewer/GaussianViewport'))
 
 export function SimulationView({ notify }: { notify: (text: string) => void }) {
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const simulation = useAppStore((state) => state.simulation)
   const start = useAppStore((state) => state.startSimulation)
   const pause = useAppStore((state) => state.pauseSimulation)
@@ -14,6 +16,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
   const reset = useAppStore((state) => state.resetSimulation)
   const stop = useAppStore((state) => state.stopSimulation)
   const setSpeed = useAppStore((state) => state.setSimulationSpeed)
+  const selectModel = useAppStore((state) => state.selectSimulationModel)
   const sensor = useAppStore((state) => state.sensor)
 
   const run = async (operation: () => Promise<SimulationActionResult>, success: string) => {
@@ -30,6 +33,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
     : simulation.simulationState === 'paused' ? '继续' : '启动'
 
   return <section className="sim-panel"><div className="sim-toolbar"><div className="view-modes"><button className="active"><Box size={15} />漫游</button><button onClick={() => notify('自由视角接口已预留，等待仿真引擎接入')}><Eye size={15} />自由视角</button><button onClick={() => notify('跟随视角接口已预留，等待仿真引擎接入')}><Camera size={15} />跟随</button><button onClick={() => notify('第一人称接口已预留，等待视频流接入')}><Video size={15} />第一人称</button></div><div className="play-controls" aria-label="MuJoCo 仿真控制">
+    <Select aria-label="仿真模型" size="small" className="simulation-model-select" open={modelMenuOpen} onOpenChange={setModelMenuOpen} value={simulation.selectedModelId} disabled={simulation.busy || simulation.simulationState === 'running'} options={SIMULATION_MODELS.map((model) => ({ value: model.id, label: model.displayName }))} onChange={(value: SimulationModelId) => { setModelMenuOpen(false); void run(() => selectModel(value), '仿真模型已切换') }} />
     <span className={`simulation-process simulation-process--${simulation.processState}`}>{simulation.desktop ? simulation.processState : '仅桌面版'}</span>
     <Tooltip title={toggleLabel}><button aria-label={toggleLabel} disabled={simulation.busy} className={simulation.simulationState === 'paused' ? 'active' : ''} onClick={() => void toggleRun()}>{simulation.simulationState === 'running' ? <Pause size={16} /> : <Play size={16} />}</button></Tooltip>
     <Tooltip title="单步（固定 1 步）"><button aria-label="单步" disabled={simulation.busy || !simulation.model} onClick={() => void run(step, '仿真已推进 1 步')}><SkipForward size={15}/></button></Tooltip>

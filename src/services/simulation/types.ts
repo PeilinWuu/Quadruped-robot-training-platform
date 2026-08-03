@@ -3,6 +3,17 @@ export type SimulationProcessState =
   | 'unresponsive' | 'unavailable'
 
 export type SimulationState = 'unloaded' | 'loaded' | 'running' | 'paused' | 'stopped'
+export type SimulationModelId = 'unitree-go2-menagerie' | 'minimal-quadruped-v1'
+export interface SimulationModelDescription {
+  id: SimulationModelId; displayName: string; source: string; isDefault: boolean
+  visualProfile: string; description: string
+}
+
+export const SIMULATION_MODELS: readonly SimulationModelDescription[] = [
+  { id: 'unitree-go2-menagerie', displayName: '宇树 Go2（实验室模型）', source: 'MuJoCo Menagerie / Unitree Go2', isDefault: true, visualProfile: 'Go2 基础几何预览', description: '当前仅保持站立，不包含步态控制' },
+  { id: 'minimal-quadruped-v1', displayName: '最小四足（测试模型）', source: '项目测试模型', isDefault: false, visualProfile: '最小四足基础几何预览', description: '用于仿真链路回归测试' },
+] as const
+export const DEFAULT_SIMULATION_MODEL_ID: SimulationModelId = 'unitree-go2-menagerie'
 
 export interface JointPose { name: string; position: number }
 
@@ -50,7 +61,7 @@ export interface SimulationAdapter {
   getStatus(): Promise<SimulationStatus>
   ping(): Promise<{ latencyMs: number; nonceVerified: boolean }>
   stopSidecar(): Promise<SimulationStatus>
-  loadDefaultModel(): Promise<ModelMetadata>
+  loadModel(modelId: SimulationModelId): Promise<ModelMetadata>
   startSimulation(): Promise<SimulationState>
   pauseSimulation(): Promise<SimulationState>
   stepSimulation(steps: number): Promise<RobotPose>

@@ -290,9 +290,14 @@ impl SimulationManager {
         }
     }
 
-    pub fn load_model(&self) -> Result<ModelLoadedPayload, SimulationError> {
+    pub fn load_model(&self, model_id: &str) -> Result<ModelLoadedPayload, SimulationError> {
         self.require_ready()?;
-        match self.request(ProtocolCommand::LoadModel, COMMAND_TIMEOUT)? {
+        match self.request(
+            ProtocolCommand::LoadModel {
+                model_id: model_id.to_owned(),
+            },
+            COMMAND_TIMEOUT,
+        )? {
             ProtocolResponse::ModelLoaded(value) => Ok(value),
             other => response_error(other),
         }
@@ -603,13 +608,50 @@ pub fn resolve_sidecar_resources(
             "The bundled simulation sidecar is invalid.",
         ));
     }
-    let required: [&[&str]; 3] = [
+    let required: &[&[&str]] = &[
         &["resources", "sidecar", "mujoco.dll"],
         &[
             "resources",
             "simulation",
             "models",
             "minimal-quadruped-v1.xml",
+        ],
+        &[
+            "resources",
+            "simulation",
+            "models",
+            "unitree-go2-menagerie",
+            "unitree-go2-scene.xml",
+        ],
+        &[
+            "resources",
+            "simulation",
+            "models",
+            "unitree-go2-menagerie",
+            "upstream",
+            "go2.xml",
+        ],
+        &[
+            "resources",
+            "simulation",
+            "models",
+            "unitree-go2-menagerie",
+            "upstream",
+            "LICENSE",
+        ],
+        &[
+            "resources",
+            "simulation",
+            "models",
+            "unitree-go2-menagerie",
+            "SOURCE.md",
+        ],
+        &[
+            "resources",
+            "simulation",
+            "models",
+            "unitree-go2-menagerie",
+            "menagerie.lock.json",
         ],
         &["resources", "licenses", "MuJoCo-Apache-2.0.txt"],
     ];
@@ -727,13 +769,18 @@ fn handle_message(
                 event = Some(SimulationEvent::StateChanged(state.clone()));
             }
             ProtocolResponse::Pose(pose) => {
-                let accept = match inner.latest_pose.as_ref() {
-                    Some(current) => {
-                        (pose.sequence == 0 && pose.simulation_time == 0.0)
-                            || sequence_is_newer(pose.sequence, current.sequence)
-                    }
-                    None => true,
-                };
+                let matches_model = inner
+                    .model
+                    .as_ref()
+                    .is_some_and(|model| pose.has_model_joints(&model.model_id));
+                let accept = matches_model
+                    && match inner.latest_pose.as_ref() {
+                        Some(current) => {
+                            (pose.sequence == 0 && pose.simulation_time == 0.0)
+                                || sequence_is_newer(pose.sequence, current.sequence)
+                        }
+                        None => true,
+                    };
                 if accept {
                     inner.latest_pose = Some(pose.clone());
                     event = Some(SimulationEvent::Pose(pose.clone()));
@@ -929,7 +976,9 @@ mod tests {
         let sidecar_start_ms = sidecar_started.elapsed().as_millis();
         assert!(manager.ping().unwrap().nonce_verified);
         let model_started = Instant::now();
-        let metadata = manager.load_model().unwrap();
+        let metadata = manager
+            .load_model(super::super::protocol::MINIMAL_MODEL_ID)
+            .unwrap();
         let model_load_ms = model_started.elapsed().as_millis();
         assert_eq!(metadata.joint_count, 12);
         let run_started = Instant::now();
@@ -965,6 +1014,18 @@ mod tests {
         assert_eq!(manager.run_reset().unwrap(), SimulationState::Loaded);
         assert_eq!(manager.latest_pose().unwrap().simulation_time, 0.0);
         assert_eq!(manager.set_speed(2.0).unwrap(), 2.0);
+        assert_eq!(manager.run_stop().unwrap(), SimulationState::Stopped);
+        let go2 = manager
+            .load_model(super::super::protocol::GO2_MODEL_ID)
+            .unwrap();
+        assert_eq!(go2.model_id, super::super::protocol::GO2_MODEL_ID);
+        assert_eq!(go2.joint_count, 12);
+        assert_eq!(go2.actuator_count, 12);
+        let go2_pose = manager.run_step(10).unwrap();
+        assert!(go2_pose.has_model_joints(super::super::protocol::GO2_MODEL_ID));
+        assert!(go2_pose.root_position.iter().all(|value| value.is_finite()));
+        assert_eq!(manager.run_reset().unwrap(), SimulationState::Loaded);
+        assert_eq!(manager.latest_pose().unwrap().simulation_time, 0.0);
         assert_eq!(manager.run_stop().unwrap(), SimulationState::Stopped);
         assert!(manager.ping().unwrap().nonce_verified);
         let stop_started = Instant::now();

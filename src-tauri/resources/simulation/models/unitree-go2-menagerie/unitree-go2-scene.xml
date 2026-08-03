@@ -1,0 +1,12 @@
+<mujoco model="unitree go2 project scene">
+  <include file="upstream/go2.xml"/>
+  <compiler meshdir="upstream/assets"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+  </visual>
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" rgba="0.16 0.20 0.23 1"/>
+  </worldbody>
+</mujoco>
