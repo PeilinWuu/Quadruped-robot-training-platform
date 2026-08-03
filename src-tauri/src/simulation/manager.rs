@@ -2,8 +2,9 @@ use super::{
     error::SimulationError,
     process::{self, JobObject},
     protocol::{
-        parse_response_line, sequence_is_newer, ModelLoadedPayload, ProtocolCommand,
-        ProtocolResponse, RobotPose, SimulationEvent, SimulationState, MAX_LINE_BYTES,
+        parse_response_line, sequence_is_newer, ModelLoadedPayload, MotionCommand,
+        MotionCommandStatus, ProtocolCommand, ProtocolResponse, RobotPose, RobotTelemetry,
+        SimulationEvent, SimulationState, TelemetryConfig, MAX_LINE_BYTES,
     },
 };
 use serde::Serialize;
@@ -87,6 +88,9 @@ struct ManagerInner {
     sidecar_version: Option<String>,
     model: Option<ModelLoadedPayload>,
     latest_pose: Option<RobotPose>,
+    latest_telemetry: Option<RobotTelemetry>,
+    latest_motion_command: Option<MotionCommandStatus>,
+    telemetry_config: TelemetryConfig,
     speed: f64,
     started_at: Option<i64>,
     error: Option<SimulationError>,
@@ -123,6 +127,9 @@ impl SimulationManager {
                     sidecar_version: None,
                     model: None,
                     latest_pose: None,
+                    latest_telemetry: None,
+                    latest_motion_command: None,
+                    telemetry_config: TelemetryConfig { rate_hz: 50 },
                     speed: 1.0,
                     started_at: None,
                     error: None,
@@ -175,6 +182,9 @@ impl SimulationManager {
             inner.simulation_state = SimulationState::Unloaded;
             inner.model = None;
             inner.latest_pose = None;
+            inner.latest_telemetry = None;
+            inner.latest_motion_command = None;
+            inner.telemetry_config = TelemetryConfig { rate_hz: 50 };
             inner.error = None;
             inner.protocol_errors = 0;
             inner.generation
@@ -345,6 +355,49 @@ impl SimulationManager {
             other => response_error(other),
         }
     }
+    pub fn set_motion_command(
+        &self,
+        command: MotionCommand,
+    ) -> Result<MotionCommandStatus, SimulationError> {
+        self.require_ready()?;
+        command.validate()?;
+        match self.request(ProtocolCommand::SetMotionCommand(command), COMMAND_TIMEOUT)? {
+            ProtocolResponse::MotionCommandChanged(value) => Ok(value),
+            other => response_error(other),
+        }
+    }
+    pub fn clear_motion_command(&self) -> Result<MotionCommandStatus, SimulationError> {
+        self.require_ready()?;
+        match self.request(ProtocolCommand::ClearMotionCommand, COMMAND_TIMEOUT)? {
+            ProtocolResponse::MotionCommandChanged(value) => Ok(value),
+            other => response_error(other),
+        }
+    }
+    pub fn set_telemetry_rate(&self, rate_hz: u16) -> Result<TelemetryConfig, SimulationError> {
+        self.require_ready()?;
+        match self.request(
+            ProtocolCommand::SetTelemetryRate { rate_hz },
+            COMMAND_TIMEOUT,
+        )? {
+            ProtocolResponse::TelemetryConfigChanged(value) => Ok(value),
+            other => response_error(other),
+        }
+    }
+    #[cfg(test)]
+    pub fn latest_telemetry(&self) -> Option<RobotTelemetry> {
+        self.core
+            .inner
+            .lock()
+            .ok()
+            .and_then(|inner| inner.latest_telemetry.clone())
+    }
+    pub fn get_latest_telemetry(&self) -> Result<RobotTelemetry, SimulationError> {
+        self.require_ready()?;
+        match self.request(ProtocolCommand::GetLatestTelemetry, COMMAND_TIMEOUT)? {
+            ProtocolResponse::Telemetry(value) => Ok(*value),
+            other => response_error(other),
+        }
+    }
     fn state_command(&self, command: ProtocolCommand) -> Result<SimulationState, SimulationError> {
         self.require_ready()?;
         match self.request(command, COMMAND_TIMEOUT)? {
@@ -431,6 +484,9 @@ impl SimulationManager {
         inner.sidecar_version = None;
         inner.model = None;
         inner.latest_pose = None;
+        inner.latest_telemetry = None;
+        inner.latest_motion_command = None;
+        inner.telemetry_config = TelemetryConfig { rate_hz: 50 };
         inner.speed = 1.0;
         Ok(self.status_unlocked(&inner))
     }
@@ -751,6 +807,8 @@ fn handle_message(
                 inner.model = Some(model.clone());
                 inner.simulation_state = SimulationState::Loaded;
                 inner.latest_pose = None;
+                inner.latest_telemetry = None;
+                inner.latest_motion_command = None;
                 event = Some(SimulationEvent::ModelLoaded(model.clone()));
             }
             ProtocolResponse::StateChanged(state) => {
@@ -762,6 +820,7 @@ fn handle_message(
                         .is_some_and(|pose| pose.sequence == 0 && pose.simulation_time == 0.0)
                 {
                     inner.latest_pose = None;
+                    inner.latest_telemetry = None;
                 }
                 if let Some(speed) = state.speed {
                     inner.speed = speed;
@@ -785,6 +844,33 @@ fn handle_message(
                     inner.latest_pose = Some(pose.clone());
                     event = Some(SimulationEvent::Pose(pose.clone()));
                 }
+            }
+            ProtocolResponse::Telemetry(telemetry) => {
+                let matches_model = inner
+                    .model
+                    .as_ref()
+                    .is_some_and(|model| telemetry.model_id == model.model_id);
+                let accept = matches_model
+                    && match inner.latest_telemetry.as_ref() {
+                        Some(current) => {
+                            (telemetry.sequence == 0 && telemetry.simulation_time == 0.0)
+                                || sequence_is_newer(telemetry.sequence, current.sequence)
+                        }
+                        None => true,
+                    };
+                if accept {
+                    inner.latest_motion_command = Some(telemetry.command.clone());
+                    inner.latest_telemetry = Some(telemetry.as_ref().clone());
+                    event = Some(SimulationEvent::Telemetry(telemetry.clone()));
+                }
+            }
+            ProtocolResponse::MotionCommandChanged(command) => {
+                inner.latest_motion_command = Some(command.clone());
+                event = Some(SimulationEvent::MotionCommandChanged(command.clone()));
+            }
+            ProtocolResponse::TelemetryConfigChanged(config) => {
+                inner.telemetry_config = config.clone();
+                event = Some(SimulationEvent::TelemetryConfigChanged(config.clone()));
             }
             ProtocolResponse::Warning(warning) => {
                 event = Some(SimulationEvent::Warning(warning.clone()))
@@ -914,6 +1000,9 @@ fn mark_crashed(core: &Weak<ManagerCore>, generation: u64, code: &str) {
             inner.simulation_state = SimulationState::Unloaded;
             inner.model = None;
             inner.latest_pose = None;
+            inner.latest_telemetry = None;
+            inner.latest_motion_command = None;
+            inner.telemetry_config = TelemetryConfig { rate_hz: 50 };
             inner.error = Some(error.clone());
             inner
                 .pending
@@ -988,17 +1077,73 @@ mod tests {
         while manager.latest_pose().is_none() && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
         }
-        let running_pose = manager.latest_pose().unwrap();
+        assert!(manager.latest_pose().is_some());
+        while manager.latest_telemetry().is_none() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        let initial_telemetry = manager.latest_telemetry().unwrap();
+        assert_eq!(initial_telemetry.joints.len(), 12);
+        assert_eq!(initial_telemetry.feet.len(), 4);
+        assert_eq!(initial_telemetry.source.kind, "mujoco-simulation");
+        assert!(!initial_telemetry.source.connected_to_physical_robot);
+        assert_eq!(manager.set_telemetry_rate(10).unwrap().rate_hz, 10);
+        assert_eq!(manager.set_telemetry_rate(100).unwrap().rate_hz, 100);
+        assert!(manager.set_telemetry_rate(9).is_err());
+        let target = manager
+            .set_motion_command(super::super::protocol::MotionCommand {
+                sequence: 7,
+                mode: super::super::protocol::MotionCommandMode::Locomotion,
+                forward_velocity: 0.2,
+                lateral_velocity: 0.0,
+                yaw_rate: 0.1,
+                body_height: 0.3,
+                valid_for_ms: 100,
+            })
+            .unwrap();
+        assert!(!target.applied_by_controller);
+        assert_eq!(
+            target.controller_availability,
+            super::super::protocol::ControllerAvailability::NotImplemented
+        );
+        thread::sleep(Duration::from_millis(120));
+        assert!(manager.get_latest_telemetry().unwrap().command.timed_out);
+        let cleared = manager.clear_motion_command().unwrap();
+        assert_eq!(
+            cleared.mode,
+            super::super::protocol::MotionCommandMode::Stand
+        );
+        assert!(cleared.applied_by_controller);
+        assert_eq!(manager.set_telemetry_rate(50).unwrap().rate_hz, 50);
+        let frequency_base = manager.latest_pose().unwrap();
         let frequency_started = Instant::now();
         thread::sleep(Duration::from_millis(500));
         let frequency_elapsed = frequency_started.elapsed().as_secs_f64();
         let frequency_pose = manager.latest_pose().unwrap();
-        let pose_hz = f64::from(frequency_pose.sequence.wrapping_sub(running_pose.sequence))
-            / frequency_elapsed;
+        let pose_hz = f64::from(
+            frequency_pose
+                .sequence
+                .wrapping_sub(frequency_base.sequence),
+        ) / frequency_elapsed;
         let sim_rate =
-            (frequency_pose.simulation_time - running_pose.simulation_time) / frequency_elapsed;
+            (frequency_pose.simulation_time - frequency_base.simulation_time) / frequency_elapsed;
         println!("D4C_POSE_HZ_OBSERVED={pose_hz:.2} D4C_SIM_RATE={sim_rate:.3}");
         assert!((50.0..=65.0).contains(&pose_hz));
+        thread::sleep(Duration::from_millis(550));
+        let performance_sample = manager.get_latest_telemetry().unwrap();
+        let performance = &performance_sample.performance;
+        assert!((400.0..=600.0).contains(&performance.physics_frequency_hz));
+        assert!((80.0..=120.0).contains(&performance.control_frequency_hz));
+        assert!((50.0..=65.0).contains(&performance.pose_publish_frequency_hz));
+        assert!((40.0..=60.0).contains(&performance.telemetry_publish_frequency_hz));
+        assert!((0.7..=1.3).contains(&performance.real_time_factor));
+        let telemetry_json_bytes = serde_json::to_vec(&performance_sample).unwrap().len();
+        let mean_foot_normal = performance_sample
+            .feet
+            .iter()
+            .map(|foot| foot.normal_force)
+            .sum::<f64>()
+            / 4.0;
+        println!("D5VA_METRICS physics_hz={:.2} control_hz={:.2} pose_hz={:.2} telemetry_hz={:.2} real_time_factor={:.3} physics_mean_ms={:.5} physics_max_ms={:.5} control_mean_ms={:.5} control_max_ms={:.5} dropped_pose={} dropped_telemetry={} catch_up={} telemetry_json_bytes={} mean_foot_normal_n={:.2}", performance.physics_frequency_hz, performance.control_frequency_hz, performance.pose_publish_frequency_hz, performance.telemetry_publish_frequency_hz, performance.real_time_factor, performance.physics_step_mean_ms, performance.physics_step_max_ms, performance.control_step_mean_ms, performance.control_step_max_ms, performance.dropped_pose_events, performance.dropped_telemetry_events, performance.catch_up_step_count, telemetry_json_bytes, mean_foot_normal);
         assert_eq!(manager.run_pause().unwrap(), SimulationState::Paused);
         let paused = manager.latest_pose().unwrap().simulation_time;
         thread::sleep(Duration::from_millis(40));

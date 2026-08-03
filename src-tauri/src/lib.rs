@@ -41,6 +41,10 @@ pub fn run() {
             simulation::commands::simulation_run_stop,
             simulation::commands::simulation_set_speed,
             simulation::commands::simulation_latest_pose,
+            simulation::commands::simulation_set_motion_command,
+            simulation::commands::simulation_clear_motion_command,
+            simulation::commands::simulation_set_telemetry_rate,
+            simulation::commands::simulation_latest_telemetry,
             simulation::commands::simulation_subscribe,
             simulation::commands::simulation_unsubscribe
         ])

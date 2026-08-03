@@ -29,6 +29,12 @@ bool valid_request_id(const Json& value) {
   return value.is_string() && !value.get_ref<const std::string&>().empty() &&
          value.get_ref<const std::string&>().size() <= 64U && printable_ascii(value.get_ref<const std::string&>());
 }
+bool valid_u32(const Json& value) {
+  if (!value.is_number_integer() && !value.is_number_unsigned()) return false;
+  if (value.is_number_unsigned()) return value.get<std::uint64_t>() <= UINT32_MAX;
+  const auto number = value.get<std::int64_t>();
+  return number >= 0 && static_cast<std::uint64_t>(number) <= UINT32_MAX;
+}
 bool structurally_safe(const Json& value, const std::size_t depth = 0) {
   if (depth > kMaxDepth) return false;
   if (value.is_string()) return value.get_ref<const std::string&>().size() <= kMaxStringBytes;
@@ -58,9 +64,19 @@ ProtocolResult engine_result(const Json& request_id, const char* success_type, E
 
 ProtocolHandler::ProtocolHandler(std::string resource_root, EventSink event_sink)
     : simulation_(std::make_unique<SimulationEngine>(std::move(resource_root),
-          [sink = std::move(event_sink)](Json pose) {
-            sink(envelope(nullptr, "pose", std::move(pose)).dump());
+          [sink = std::move(event_sink)](const EventKind kind, Json payload) {
+            const char* type = "telemetry";
+            if (kind == EventKind::pose) type = "pose";
+            else if (kind == EventKind::motion_command) type = "motion_command_changed";
+            else if (kind == EventKind::telemetry_config) type = "telemetry_config_changed";
+            return sink(type, envelope(nullptr, type, std::move(payload)).dump());
           })) {}
+ProtocolHandler::ProtocolHandler(std::string resource_root, LegacyEventSink event_sink)
+    : ProtocolHandler(std::move(resource_root),
+        [sink = std::move(event_sink)](std::string_view, std::string line) {
+          sink(std::move(line));
+          return false;
+        }) {}
 ProtocolHandler::~ProtocolHandler() = default;
 
 std::string message_too_large_response() {
@@ -93,7 +109,7 @@ ProtocolResult ProtocolHandler::process_line(const std::string& line) {
       state_ = SidecarState::ready;
       return {envelope(request_id, "ready", Json{{"sidecarName", "quadruped-simulation-sidecar"},
               {"sidecarVersion", "0.2.0"}, {"protocolVersion", kProtocolVersion},
-              {"capabilities", Json::array({"hello", "ping", "shutdown", "load_model", "start", "pause", "step", "reset", "stop", "set_speed"})}}).dump(), false};
+              {"capabilities", Json::array({"hello", "ping", "shutdown", "load_model", "start", "pause", "step", "reset", "stop", "set_speed", "set_motion_command", "clear_motion_command", "set_telemetry_rate", "get_latest_telemetry"})}}).dump(), false};
     }
     if (state_ != SidecarState::ready) return error_result(request_id, "INVALID_MESSAGE", "The command is not valid in the current process state.");
     if (type == "ping") {
@@ -117,6 +133,34 @@ ProtocolResult ProtocolHandler::process_line(const std::string& line) {
       return engine_result(request_id, "pose", simulation_->step(payload["steps"].get<int>()));
     if (type == "set_speed" && payload.size() == 1 && payload.contains("speed") && payload["speed"].is_number())
       return engine_result(request_id, "state_changed", simulation_->set_speed(payload["speed"].get<double>()));
+    if (type == "set_motion_command") {
+      if (payload.size() != 7 || !payload.contains("sequence") || !valid_u32(payload["sequence"]) ||
+          !payload.contains("mode") || !payload["mode"].is_string() ||
+          !payload.contains("forwardVelocity") || !payload["forwardVelocity"].is_number() ||
+          !payload.contains("lateralVelocity") || !payload["lateralVelocity"].is_number() ||
+          !payload.contains("yawRate") || !payload["yawRate"].is_number() ||
+          !payload.contains("bodyHeight") || !payload["bodyHeight"].is_number() ||
+          !payload.contains("validForMs") || !valid_u32(payload["validForMs"])) {
+        return error_result(request_id, "INVALID_PAYLOAD", "The command payload is invalid.");
+      }
+      const auto mode = payload["mode"].get<std::string>();
+      if (mode != "stand" && mode != "locomotion") return error_result(request_id, "INVALID_PAYLOAD", "The command payload is invalid.");
+      MotionCommand command;
+      command.sequence = payload["sequence"].get<std::uint32_t>();
+      command.mode = mode == "stand" ? MotionMode::stand : MotionMode::locomotion;
+      command.forward_velocity = payload["forwardVelocity"].get<double>();
+      command.lateral_velocity = payload["lateralVelocity"].get<double>();
+      command.yaw_rate = payload["yawRate"].get<double>();
+      command.body_height = payload["bodyHeight"].get<double>();
+      command.valid_for_ms = payload["validForMs"].get<std::uint32_t>();
+      return engine_result(request_id, "motion_command_changed", simulation_->set_motion_command(command));
+    }
+    if (type == "clear_motion_command" && payload.empty())
+      return engine_result(request_id, "motion_command_changed", simulation_->clear_motion_command());
+    if (type == "set_telemetry_rate" && payload.size() == 1 && payload.contains("rateHz") && payload["rateHz"].is_number_integer())
+      return engine_result(request_id, "telemetry_config_changed", simulation_->set_telemetry_rate(payload["rateHz"].get<int>()));
+    if (type == "get_latest_telemetry" && payload.empty())
+      return engine_result(request_id, "telemetry", simulation_->get_latest_telemetry());
     return error_result(request_id, "UNKNOWN_COMMAND", "The command type is not supported.");
   } catch (...) { return error_result(nullptr, "INTERNAL_ERROR", "The protocol message could not be processed.", false); }
 }

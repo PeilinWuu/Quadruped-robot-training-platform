@@ -50,6 +50,18 @@ describe('simulation adapters', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('simulation_load_model', { modelId: 'unitree-go2-menagerie' })
   })
 
+  it('maps virtual motion and telemetry commands without arbitrary payloads', async () => {
+    mocks.invoke.mockResolvedValue({})
+    const { tauriSimulationAdapter: adapter } = await import('../tauriSimulationAdapter')
+    const command = { sequence: 7, mode: 'locomotion' as const, forwardVelocity: .2, lateralVelocity: 0, yawRate: .1, bodyHeight: .3, validForMs: 500 }
+    await adapter.setMotionCommand(command); await adapter.clearMotionCommand()
+    await adapter.setTelemetryRate(25); await adapter.getLatestTelemetry()
+    expect(mocks.invoke).toHaveBeenCalledWith('simulation_set_motion_command', { command })
+    expect(mocks.invoke).toHaveBeenCalledWith('simulation_clear_motion_command', undefined)
+    expect(mocks.invoke).toHaveBeenCalledWith('simulation_set_telemetry_rate', { rateHz: 25 })
+    expect(mocks.invoke).toHaveBeenCalledWith('simulation_latest_telemetry', undefined)
+  })
+
   it('delivers a strongly typed channel event', async () => {
     mocks.invoke.mockResolvedValue(undefined)
     const { tauriSimulationAdapter: adapter } = await import('../tauriSimulationAdapter')

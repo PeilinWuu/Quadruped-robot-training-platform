@@ -26,6 +26,59 @@ export interface RobotPose {
   rootOrientation: [number, number, number, number]
   joints: JointPose[]
 }
+export type MotionCommandMode = 'stand' | 'locomotion'
+export interface MotionCommand {
+  sequence: number
+  mode: MotionCommandMode
+  forwardVelocity: number
+  lateralVelocity: number
+  yawRate: number
+  bodyHeight: number
+  validForMs: number
+}
+export interface MotionCommandStatus extends MotionCommand {
+  ageMs: number
+  timedOut: boolean
+  appliedByController: boolean
+  bodyHeightApplied: boolean
+  controllerAvailability: 'stand-hold' | 'not-implemented'
+}
+export interface TelemetryConfig { rateHz: number }
+export interface JointTelemetry {
+  name: string; position: number; velocity: number; actuatorTorque: number
+  actuatorForce: number; controlTarget: number; lowerLimit: number | null
+  upperLimit: number | null; limited: boolean
+}
+export interface FootTelemetry {
+  name: 'FL' | 'FR' | 'RL' | 'RR'; inContact: boolean; contactCount: number
+  normalForce: number; forceWorld: [number, number, number]; positionWorld: [number, number, number]
+}
+export interface PerformanceTelemetry {
+  physicsFrequencyHz: number; controlFrequencyHz: number; posePublishFrequencyHz: number
+  telemetryPublishFrequencyHz: number; realTimeFactor: number
+  physicsStepMeanMs: number; physicsStepMaxMs: number
+  controlStepMeanMs: number; controlStepMaxMs: number
+  droppedPoseEvents: number; droppedTelemetryEvents: number; catchUpStepCount: number
+}
+export interface RobotTelemetry {
+  sequence: number; simulationTime: number; wallTime: number; modelId: SimulationModelId
+  source: { kind: 'mujoco-simulation'; connectedToPhysicalRobot: false }
+  root: {
+    position: [number, number, number]; orientation: [number, number, number, number]
+    linearVelocityWorld: [number, number, number]; angularVelocityWorld: [number, number, number]
+    linearSpeed: number; angularSpeed: number
+  }
+  imu: {
+    orientation: [number, number, number, number]
+    angularVelocityBody: [number, number, number]
+    linearAccelerationBody: [number, number, number]
+    frame: 'body'; includesGravity: boolean; source: string
+  }
+  joints: JointTelemetry[]
+  feet: FootTelemetry[]
+  command: MotionCommandStatus
+  performance: PerformanceTelemetry
+}
 export interface ModelMetadata {
   modelId: string
   timestep: number
@@ -49,6 +102,9 @@ export interface SimulationStatus {
 export type SimulationEvent =
   | { type: 'model_loaded'; payload: ModelMetadata }
   | { type: 'pose'; payload: RobotPose }
+  | { type: 'telemetry'; payload: RobotTelemetry }
+  | { type: 'motion_command_changed'; payload: MotionCommandStatus }
+  | { type: 'telemetry_config_changed'; payload: TelemetryConfig }
   | { type: 'state_changed'; payload: { state: SimulationState; speed?: number } }
   | { type: 'warning' | 'error'; payload: SimulationErrorInfo }
 
@@ -69,5 +125,9 @@ export interface SimulationAdapter {
   stopSimulation(): Promise<SimulationState>
   setSpeed(speed: number): Promise<number>
   getLatestPose(): Promise<RobotPose | null>
+  setMotionCommand(command: MotionCommand): Promise<MotionCommandStatus>
+  clearMotionCommand(): Promise<MotionCommandStatus>
+  setTelemetryRate(rateHz: number): Promise<TelemetryConfig>
+  getLatestTelemetry(): Promise<RobotTelemetry | null>
   subscribe(listener: SimulationListener): Promise<SimulationSubscription>
 }

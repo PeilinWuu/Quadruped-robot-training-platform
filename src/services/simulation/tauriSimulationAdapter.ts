@@ -1,6 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
-  ModelMetadata, RobotPose, SimulationAdapter, SimulationEvent,
+  ModelMetadata, MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry,
+  SimulationAdapter, SimulationEvent, TelemetryConfig,
   SimulationListener, SimulationState, SimulationSubscription,
 } from './types'
 
@@ -29,6 +30,10 @@ export const tauriSimulationAdapter: SimulationAdapter = {
   stopSimulation: () => command<SimulationState>('simulation_run_stop'),
   setSpeed: (speed: number) => command<number>('simulation_set_speed', { speed }),
   getLatestPose: () => command<RobotPose | null>('simulation_latest_pose'),
+  setMotionCommand: (motion: MotionCommand) => command<MotionCommandStatus>('simulation_set_motion_command', { command: motion }),
+  clearMotionCommand: () => command<MotionCommandStatus>('simulation_clear_motion_command'),
+  setTelemetryRate: (rateHz: number) => command<TelemetryConfig>('simulation_set_telemetry_rate', { rateHz }),
+  getLatestTelemetry: () => command<RobotTelemetry | null>('simulation_latest_telemetry'),
   subscribe: async (listener: SimulationListener): Promise<SimulationSubscription> => {
     const id = subscriptionId()
     const channel = new Channel<SimulationEvent>()

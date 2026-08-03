@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace sidecar {
 
@@ -21,8 +22,10 @@ class SimulationEngine;
 
 class ProtocolHandler {
  public:
-  using EventSink = std::function<void(std::string)>;
+  using EventSink = std::function<bool(std::string_view, std::string)>;
+  using LegacyEventSink = std::function<void(std::string)>;
   ProtocolHandler(std::string resource_root, EventSink event_sink);
+  ProtocolHandler(std::string resource_root, LegacyEventSink event_sink);
   ~ProtocolHandler();
   ProtocolHandler(const ProtocolHandler&) = delete;
   ProtocolHandler& operator=(const ProtocolHandler&) = delete;

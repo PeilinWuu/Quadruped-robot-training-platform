@@ -5,7 +5,7 @@ import type {
 } from '../types'
 import { services } from '../services'
 import type {
-  JointPose, ModelMetadata, RobotPose, SimulationEvent, SimulationProcessState,
+  JointPose, ModelMetadata, MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry, SimulationEvent, SimulationProcessState,
   SimulationState, SimulationStatus, SimulationModelId,
 } from '../services/simulation/types'
 import { DEFAULT_SIMULATION_MODEL_ID } from '../services/simulation/types'
@@ -29,6 +29,8 @@ export interface SimulationUiState {
   speed: number
   lastError: string | null
   latestPose: SimulationPoseSummary | null
+  latestTelemetry: RobotTelemetry | null
+  latestMotionCommand: MotionCommandStatus | null
   busy: boolean
   visualMode: Go2VisualMode | 'primitive-only'
   visualPhase: 'idle' | 'loading' | 'ready' | 'fallback'
@@ -49,6 +51,9 @@ interface AppState {
   resetSimulation: () => Promise<SimulationActionResult>; stopSimulation: () => Promise<SimulationActionResult>
   setSimulationSpeed: (speed: number) => Promise<SimulationActionResult>; shutdownSimulation: () => Promise<void>
   selectSimulationModel: (modelId: SimulationModelId) => Promise<SimulationActionResult>
+  setMotionCommand: (command: MotionCommand) => Promise<SimulationActionResult>
+  clearMotionCommand: () => Promise<SimulationActionResult>
+  setTelemetryRate: (rateHz: number) => Promise<SimulationActionResult>
 }
 
 const INITIAL_SIMULATION: SimulationUiState = {
@@ -56,11 +61,12 @@ const INITIAL_SIMULATION: SimulationUiState = {
   selectedModelId: DEFAULT_SIMULATION_MODEL_ID,
   processState: services.simulation.desktop ? 'idle' : 'unavailable',
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
-  latestPose: null, busy: false,
+  latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false,
   visualMode: 'official-mesh', visualPhase: 'idle', visualError: null,
 }
 
 let eventCleanup: (() => void) | null = null
+let telemetryCleanup: (() => void) | null = null
 let poseTimer: number | null = null
 let pendingPose: RobotPose | null = null
 let lastPoseSummaryAt = 0
@@ -142,13 +148,44 @@ export const useAppStore = create<AppState>((set, get) => {
     stopSimulation: () => runSimulationAction(() => services.simulation.stop()),
     setSimulationSpeed: (nextSpeed) => runSimulationAction(() => services.simulation.setSpeed(nextSpeed)),
     selectSimulationModel: (modelId) => runSimulationAction(() => services.simulation.selectModel(modelId)),
+    setMotionCommand: async (command) => {
+      if (get().simulation.busy) return { ok: false, error: '仿真操作正在进行，请稍候' }
+      set((state) => ({ simulation: { ...state.simulation, busy: true, lastError: null } }))
+      try {
+        ensureSimulationBridge()
+        const next = await services.simulation.setMotionCommand(command)
+        set((state) => ({ simulation: { ...state.simulation, latestMotionCommand: next, busy: false } }))
+        return { ok: true }
+      } catch (error) {
+        const message = safeSimulationError(error)
+        set((state) => ({ simulation: { ...state.simulation, busy: false, lastError: message } }))
+        return { ok: false, error: message }
+      }
+    },
+    clearMotionCommand: async () => {
+      if (get().simulation.busy) return { ok: false, error: '仿真操作正在进行，请稍候' }
+      set((state) => ({ simulation: { ...state.simulation, busy: true, lastError: null } }))
+      try {
+        const next = await services.simulation.clearMotionCommand()
+        set((state) => ({ simulation: { ...state.simulation, latestMotionCommand: next, busy: false } }))
+        return { ok: true }
+      } catch (error) {
+        const message = safeSimulationError(error)
+        set((state) => ({ simulation: { ...state.simulation, busy: false, lastError: message } }))
+        return { ok: false, error: message }
+      }
+    },
+    setTelemetryRate: async (rateHz) => {
+      try { await services.simulation.setTelemetryRate(rateHz); return { ok: true } }
+      catch (error) { return { ok: false, error: safeSimulationError(error) } }
+    },
     shutdownSimulation: async () => {
       clearSimulationBridge()
       try {
         const status = await services.simulation.shutdown()
-        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, busy: false } }))
+        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false } }))
       } catch {
-        set((state) => ({ simulation: { ...state.simulation, processState: 'failed', simulationState: 'unloaded', latestPose: null, busy: false, lastError: '仿真服务清理失败，应用退出时将执行进程级清理' } }))
+        set((state) => ({ simulation: { ...state.simulation, processState: 'failed', simulationState: 'unloaded', latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false, lastError: '仿真服务清理失败，应用退出时将执行进程级清理' } }))
       }
     },
   }
@@ -157,11 +194,20 @@ export const useAppStore = create<AppState>((set, get) => {
 function ensureSimulationBridge(): void {
   if (eventCleanup) return
   eventCleanup = services.simulation.onEvent(handleSimulationEvent)
+  telemetryCleanup = services.simulation.subscribeTelemetry((telemetry) => {
+    useAppStore.setState((state) => ({ simulation: {
+      ...state.simulation,
+      latestTelemetry: telemetry,
+      latestMotionCommand: telemetry.command,
+    } }))
+  })
 }
 
 function clearSimulationBridge(): void {
   eventCleanup?.()
   eventCleanup = null
+  telemetryCleanup?.()
+  telemetryCleanup = null
   pendingPose = null
   if (poseTimer !== null) globalThis.clearTimeout(poseTimer)
   poseTimer = null
@@ -177,7 +223,7 @@ function handleSimulationEvent(event: SimulationEvent): void {
     return
   }
   if (event.type === 'model_loaded') {
-    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null } }))
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null, latestTelemetry: null, latestMotionCommand: null } }))
   } else if (event.type === 'state_changed') {
     useAppStore.setState((state) => ({ simulation: {
       ...state.simulation,
@@ -186,6 +232,8 @@ function handleSimulationEvent(event: SimulationEvent): void {
     } }))
   } else if (event.type === 'error') {
     useAppStore.setState((state) => ({ simulation: { ...state.simulation, lastError: '仿真服务报告错误，请重试或重新启动仿真' } }))
+  } else if (event.type === 'motion_command_changed') {
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, latestMotionCommand: event.payload } }))
   }
 }
 

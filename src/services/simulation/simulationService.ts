@@ -1,6 +1,9 @@
 import { browserSimulationAdapter } from './browserSimulationAdapter'
 import type {
+  MotionCommand,
+  MotionCommandStatus,
   RobotPose,
+  RobotTelemetry,
   ModelMetadata,
   SimulationAdapter,
   SimulationEvent,
@@ -9,8 +12,10 @@ import type {
   SimulationSubscription,
   SimulationModelDescription,
   SimulationModelId,
+  TelemetryConfig,
 } from './types'
 import { DEFAULT_SIMULATION_MODEL_ID, SIMULATION_MODELS } from './types'
+import { RobotTelemetryBuffer, type TelemetryListener } from './RobotTelemetryBuffer'
 
 let adapterPromise: Promise<SimulationAdapter> | null = null
 
@@ -35,6 +40,7 @@ export class ManagedSimulationService {
   private subscription: SimulationSubscription | null = null
   private subscriptionPromise: Promise<void> | null = null
   private latestPose: RobotPose | null = null
+  private readonly telemetry = new RobotTelemetryBuffer()
   private selectedModelId: SimulationModelId = DEFAULT_SIMULATION_MODEL_ID
   private readonly poseListeners = new Set<PoseListener>()
   private readonly eventListeners = new Set<SimulationListener>()
@@ -46,6 +52,7 @@ export class ManagedSimulationService {
 
   get desktop(): boolean { return simulationDesktopSupported() }
   getBufferedPose(): RobotPose | null { return this.latestPose }
+  getBufferedTelemetry(): RobotTelemetry | null { return this.telemetry.getLatest() }
   listAvailableModels(): readonly SimulationModelDescription[] { return SIMULATION_MODELS }
   getSelectedModel(): SimulationModelDescription {
     return SIMULATION_MODELS.find((model) => model.id === this.selectedModelId)!
@@ -58,6 +65,7 @@ export class ManagedSimulationService {
       if (status.simulationState === 'running') throw new Error('仿真运行中不能切换模型，请先停止')
       this.selectedModelId = modelId
       this.latestPose = null
+      this.telemetry.clear()
       if (status.state !== 'ready') return status
       if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
       await adapter.loadModel(modelId)
@@ -77,6 +85,25 @@ export class ManagedSimulationService {
   onEvent(listener: SimulationListener): () => void {
     this.eventListeners.add(listener)
     return () => this.eventListeners.delete(listener)
+  }
+  subscribeTelemetry(listener: TelemetryListener): () => void {
+    return this.telemetry.subscribe(listener)
+  }
+
+  setMotionCommand(command: MotionCommand): Promise<MotionCommandStatus> {
+    return this.serial(async () => (await this.adapterForUse()).setMotionCommand(command))
+  }
+  clearMotionCommand(): Promise<MotionCommandStatus> {
+    return this.serial(async () => (await this.adapterForUse()).clearMotionCommand())
+  }
+  setTelemetryRate(rateHz: number): Promise<TelemetryConfig> {
+    if (!Number.isInteger(rateHz) || rateHz < 10 || rateHz > 100) {
+      return Promise.reject(new Error('遥测频率必须为 10～100 Hz 的整数'))
+    }
+    return this.serial(async () => (await this.adapterForUse()).setTelemetryRate(rateHz))
+  }
+  getLatestTelemetry(): Promise<RobotTelemetry | null> {
+    return this.withAdapter((adapter) => adapter.getLatestTelemetry())
   }
 
   getStatus(): Promise<SimulationStatus> {
@@ -131,6 +158,7 @@ export class ManagedSimulationService {
   reset(): Promise<SimulationStatus> {
     return this.serial(async () => {
       const adapter = await this.adapterForUse()
+      this.telemetry.clear()
       await adapter.resetSimulation()
       const pose = await adapter.getLatestPose()
       if (pose) this.dispatch({ type: 'pose', payload: pose })
@@ -167,6 +195,7 @@ export class ManagedSimulationService {
       let status = await adapter.getStatus()
       if (!['idle', 'unavailable'].includes(status.state)) status = await adapter.stopSidecar()
       this.latestPose = null
+      this.telemetry.clear()
       return status
     })
   }
@@ -193,6 +222,11 @@ export class ManagedSimulationService {
     await this.subscriptionPromise
   }
   private dispatch(event: SimulationEvent): void {
+    if (event.type === 'telemetry') {
+      if (event.payload.modelId !== this.selectedModelId) return
+      this.telemetry.update(event.payload)
+      return
+    }
     if (event.type === 'pose') {
       const expected = this.selectedModelId === 'unitree-go2-menagerie' ? ['FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint', 'FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint', 'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint', 'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint'] : ['front_left_hip_abduction', 'front_left_hip_flexion', 'front_left_knee', 'front_right_hip_abduction', 'front_right_hip_flexion', 'front_right_knee', 'rear_left_hip_abduction', 'rear_left_hip_flexion', 'rear_left_knee', 'rear_right_hip_abduction', 'rear_right_hip_flexion', 'rear_right_knee']
       if (event.payload.joints.length !== expected.length || event.payload.joints.some((joint, index) => joint.name !== expected[index])) return
@@ -201,6 +235,7 @@ export class ManagedSimulationService {
         try { listener(event.payload) } catch { /* Render listeners are isolated. */ }
       }
     }
+    if (event.type === 'model_loaded') this.telemetry.clear()
     for (const listener of this.eventListeners) {
       try { listener(event) } catch { /* UI listeners cannot interrupt delivery. */ }
     }
@@ -210,6 +245,7 @@ export class ManagedSimulationService {
     const subscription = this.subscription
     this.subscription = null
     await subscription?.unsubscribe()
+    this.telemetry.clear()
   }
 }
 

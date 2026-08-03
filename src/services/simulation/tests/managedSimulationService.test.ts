@@ -36,6 +36,10 @@ function fakeAdapter(initial?: Partial<SimulationStatus>) {
     stopSimulation: vi.fn(async () => { calls.push('stop'); return state('stopped') }),
     setSpeed: vi.fn(async (speed) => { calls.push(`speed:${speed}`); status = { ...status, speed }; return speed }),
     getLatestPose: vi.fn(async () => POSE),
+    setMotionCommand: vi.fn(async (command) => ({ ...command, ageMs: 0, timedOut: false, appliedByController: command.mode === 'stand', bodyHeightApplied: false, controllerAvailability: command.mode === 'stand' ? 'stand-hold' as const : 'not-implemented' as const })),
+    clearMotionCommand: vi.fn(async () => ({ sequence: 0, mode: 'stand' as const, forwardVelocity: 0, lateralVelocity: 0, yawRate: 0, bodyHeight: .3, validForMs: 500, ageMs: 0, timedOut: false, appliedByController: true, bodyHeightApplied: false, controllerAvailability: 'stand-hold' as const })),
+    setTelemetryRate: vi.fn(async (rateHz) => ({ rateHz })),
+    getLatestTelemetry: vi.fn(async () => null),
     subscribe: vi.fn(async (nextListener) => { calls.push('subscribe'); listener = nextListener; return subscription }),
   }
   return { adapter, calls, subscription, emit: (event: Parameters<SimulationListener>[0]) => listener(event) }

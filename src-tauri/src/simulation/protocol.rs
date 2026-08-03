@@ -65,6 +65,10 @@ pub enum ProtocolCommand {
     Reset,
     Stop,
     SetSpeed { speed: f64 },
+    SetMotionCommand(MotionCommand),
+    ClearMotionCommand,
+    SetTelemetryRate { rate_hz: u16 },
+    GetLatestTelemetry,
 }
 
 impl ProtocolCommand {
@@ -99,6 +103,24 @@ impl ProtocolCommand {
                 }
                 ("set_speed", json!({"speed":speed}))
             }
+            Self::SetMotionCommand(command) => {
+                command.validate()?;
+                (
+                    "set_motion_command",
+                    serde_json::to_value(command).map_err(|_| SimulationError::internal())?,
+                )
+            }
+            Self::ClearMotionCommand => ("clear_motion_command", json!({})),
+            Self::SetTelemetryRate { rate_hz } => {
+                if !(10..=100).contains(rate_hz) {
+                    return Err(SimulationError::new(
+                        "INVALID_TELEMETRY_RATE",
+                        "Telemetry rate must be between 10 and 100 Hz.",
+                    ));
+                }
+                ("set_telemetry_rate", json!({"rateHz":rate_hz}))
+            }
+            Self::GetLatestTelemetry => ("get_latest_telemetry", json!({})),
         };
         serde_json::to_string(&ProtocolEnvelope {
             protocol_version: PROTOCOL_VERSION,
@@ -108,6 +130,286 @@ impl ProtocolCommand {
             payload,
         })
         .map_err(|_| SimulationError::internal())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MotionCommandMode {
+    Stand,
+    Locomotion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MotionCommand {
+    pub sequence: u32,
+    pub mode: MotionCommandMode,
+    pub forward_velocity: f64,
+    pub lateral_velocity: f64,
+    pub yaw_rate: f64,
+    pub body_height: f64,
+    pub valid_for_ms: u32,
+}
+
+impl MotionCommand {
+    pub fn validate(&self) -> Result<(), SimulationError> {
+        if !self.forward_velocity.is_finite()
+            || !self.lateral_velocity.is_finite()
+            || !self.yaw_rate.is_finite()
+            || !self.body_height.is_finite()
+            || !(-1.5..=1.5).contains(&self.forward_velocity)
+            || !(-1.0..=1.0).contains(&self.lateral_velocity)
+            || !(-2.0..=2.0).contains(&self.yaw_rate)
+            || !(0.18..=0.40).contains(&self.body_height)
+            || !(100..=2000).contains(&self.valid_for_ms)
+        {
+            return Err(SimulationError::new(
+                "INVALID_MOTION_COMMAND",
+                "The virtual motion command is outside the allowed range.",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ControllerAvailability {
+    StandHold,
+    NotImplemented,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MotionCommandStatus {
+    pub sequence: u32,
+    pub mode: MotionCommandMode,
+    pub forward_velocity: f64,
+    pub lateral_velocity: f64,
+    pub yaw_rate: f64,
+    pub body_height: f64,
+    pub valid_for_ms: u32,
+    pub age_ms: u64,
+    pub timed_out: bool,
+    pub applied_by_controller: bool,
+    pub body_height_applied: bool,
+    pub controller_availability: ControllerAvailability,
+}
+
+impl MotionCommandStatus {
+    fn validate(&self) -> Result<(), SimulationError> {
+        MotionCommand {
+            sequence: self.sequence,
+            mode: self.mode,
+            forward_velocity: self.forward_velocity,
+            lateral_velocity: self.lateral_velocity,
+            yaw_rate: self.yaw_rate,
+            body_height: self.body_height,
+            valid_for_ms: self.valid_for_ms,
+        }
+        .validate()?;
+        let stand = self.mode == MotionCommandMode::Stand;
+        if (stand
+            && (self.forward_velocity != 0.0
+                || self.lateral_velocity != 0.0
+                || self.yaw_rate != 0.0))
+            || self.applied_by_controller != stand
+            || self.body_height_applied
+            || (stand && self.controller_availability != ControllerAvailability::StandHold)
+            || (!stand && self.controller_availability != ControllerAvailability::NotImplemented)
+        {
+            return Err(SimulationError::protocol());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TelemetryConfig {
+    pub rate_hz: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TelemetrySource {
+    pub kind: String,
+    pub connected_to_physical_robot: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RootTelemetry {
+    pub position: [f64; 3],
+    pub orientation: [f64; 4],
+    pub linear_velocity_world: [f64; 3],
+    pub angular_velocity_world: [f64; 3],
+    pub linear_speed: f64,
+    pub angular_speed: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImuTelemetry {
+    pub orientation: [f64; 4],
+    pub angular_velocity_body: [f64; 3],
+    pub linear_acceleration_body: [f64; 3],
+    pub frame: String,
+    pub includes_gravity: bool,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JointTelemetry {
+    pub name: String,
+    pub position: f64,
+    pub velocity: f64,
+    pub actuator_torque: f64,
+    pub actuator_force: f64,
+    pub control_target: f64,
+    pub lower_limit: Option<f64>,
+    pub upper_limit: Option<f64>,
+    pub limited: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FootTelemetry {
+    pub name: String,
+    pub in_contact: bool,
+    pub contact_count: u32,
+    pub normal_force: f64,
+    pub force_world: [f64; 3],
+    pub position_world: [f64; 3],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformanceTelemetry {
+    pub physics_frequency_hz: f64,
+    pub control_frequency_hz: f64,
+    pub pose_publish_frequency_hz: f64,
+    pub telemetry_publish_frequency_hz: f64,
+    pub real_time_factor: f64,
+    pub physics_step_mean_ms: f64,
+    pub physics_step_max_ms: f64,
+    pub control_step_mean_ms: f64,
+    pub control_step_max_ms: f64,
+    pub dropped_pose_events: u64,
+    pub dropped_telemetry_events: u64,
+    pub catch_up_step_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotTelemetry {
+    pub sequence: u32,
+    pub simulation_time: f64,
+    pub wall_time: i64,
+    pub model_id: String,
+    pub source: TelemetrySource,
+    pub root: RootTelemetry,
+    pub imu: ImuTelemetry,
+    pub joints: Vec<JointTelemetry>,
+    pub feet: Vec<FootTelemetry>,
+    pub command: MotionCommandStatus,
+    pub performance: PerformanceTelemetry,
+}
+
+fn finite(values: impl IntoIterator<Item = f64>) -> bool {
+    values.into_iter().all(f64::is_finite)
+}
+
+fn normalized(value: &[f64; 4]) -> bool {
+    let norm = value.iter().map(|v| v * v).sum::<f64>().sqrt();
+    norm > f64::EPSILON && (norm - 1.0).abs() <= 1e-3
+}
+
+impl RobotTelemetry {
+    pub fn validate(&self) -> Result<(), SimulationError> {
+        if !valid_model_id(&self.model_id)
+            || self.simulation_time < 0.0
+            || !self.simulation_time.is_finite()
+            || self.wall_time <= 0
+            || self.source.kind != "mujoco-simulation"
+            || self.source.connected_to_physical_robot
+            || self.imu.frame != "body"
+            || self.imu.source.is_empty()
+            || self.imu.source.len() > 64
+            || !normalized(&self.root.orientation)
+            || !normalized(&self.imu.orientation)
+            || !finite(self.root.position)
+            || !finite(self.root.linear_velocity_world)
+            || !finite(self.root.angular_velocity_world)
+            || !finite([self.root.linear_speed, self.root.angular_speed])
+            || !finite(self.imu.angular_velocity_body)
+            || !finite(self.imu.linear_acceleration_body)
+            || self.joints.len() != EXPECTED_JOINTS
+            || self.joints.len() > 256
+            || self.feet.len() != 4
+        {
+            return Err(SimulationError::protocol());
+        }
+        let expected = match self.model_id.as_str() {
+            GO2_MODEL_ID => &GO2_JOINT_NAMES,
+            MINIMAL_MODEL_ID => &MINIMAL_JOINT_NAMES,
+            _ => return Err(SimulationError::protocol()),
+        };
+        let mut names = HashSet::new();
+        for (joint, expected_name) in self.joints.iter().zip(expected.iter()) {
+            if joint.name != *expected_name
+                || !names.insert(&joint.name)
+                || !finite([
+                    joint.position,
+                    joint.velocity,
+                    joint.actuator_torque,
+                    joint.actuator_force,
+                    joint.control_target,
+                ])
+                || joint.lower_limit.is_some_and(|v| !v.is_finite())
+                || joint.upper_limit.is_some_and(|v| !v.is_finite())
+                || joint.limited != (joint.lower_limit.is_some() && joint.upper_limit.is_some())
+            {
+                return Err(SimulationError::protocol());
+            }
+        }
+        for (foot, expected_name) in self.feet.iter().zip(["FL", "FR", "RL", "RR"]) {
+            if foot.name != expected_name
+                || foot.normal_force < 0.0
+                || !foot.normal_force.is_finite()
+                || !finite(foot.force_world)
+                || !finite(foot.position_world)
+            {
+                return Err(SimulationError::protocol());
+            }
+        }
+        self.command.validate()?;
+        let performance = &self.performance;
+        if !finite([
+            performance.physics_frequency_hz,
+            performance.control_frequency_hz,
+            performance.pose_publish_frequency_hz,
+            performance.telemetry_publish_frequency_hz,
+            performance.real_time_factor,
+            performance.physics_step_mean_ms,
+            performance.physics_step_max_ms,
+            performance.control_step_mean_ms,
+            performance.control_step_max_ms,
+        ]) || performance.physics_frequency_hz < 0.0
+            || performance.control_frequency_hz < 0.0
+            || performance.pose_publish_frequency_hz < 0.0
+            || performance.telemetry_publish_frequency_hz < 0.0
+            || performance.real_time_factor < 0.0
+            || performance.physics_step_mean_ms < 0.0
+            || performance.physics_step_max_ms < 0.0
+            || performance.control_step_mean_ms < 0.0
+            || performance.control_step_max_ms < 0.0
+        {
+            return Err(SimulationError::protocol());
+        }
+        Ok(())
     }
 }
 
@@ -231,6 +533,9 @@ pub struct ProtocolErrorPayload {
 pub enum SimulationEvent {
     ModelLoaded(ModelLoadedPayload),
     Pose(RobotPose),
+    Telemetry(Box<RobotTelemetry>),
+    MotionCommandChanged(MotionCommandStatus),
+    TelemetryConfigChanged(TelemetryConfig),
     StateChanged(StateChangedPayload),
     Warning(ProtocolErrorPayload),
     Error(ProtocolErrorPayload),
@@ -242,6 +547,9 @@ pub enum ProtocolResponse {
     Pong(PongPayload),
     ModelLoaded(ModelLoadedPayload),
     Pose(RobotPose),
+    Telemetry(Box<RobotTelemetry>),
+    MotionCommandChanged(MotionCommandStatus),
+    TelemetryConfigChanged(TelemetryConfig),
     StateChanged(StateChangedPayload),
     ProcessStopping,
     Warning(ProtocolErrorPayload),
@@ -303,6 +611,10 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
                 "reset",
                 "stop",
                 "set_speed",
+                "set_motion_command",
+                "clear_motion_command",
+                "set_telemetry_rate",
+                "get_latest_telemetry",
             ]
             .map(str::to_owned);
             if p.protocol_version != PROTOCOL_VERSION
@@ -335,6 +647,26 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
             p.validate()?;
             ProtocolResponse::Pose(p)
         }
+        "telemetry" => {
+            let p: RobotTelemetry =
+                serde_json::from_value(raw.payload).map_err(|_| SimulationError::protocol())?;
+            p.validate()?;
+            ProtocolResponse::Telemetry(Box::new(p))
+        }
+        "motion_command_changed" => {
+            let p: MotionCommandStatus =
+                serde_json::from_value(raw.payload).map_err(|_| SimulationError::protocol())?;
+            p.validate()?;
+            ProtocolResponse::MotionCommandChanged(p)
+        }
+        "telemetry_config_changed" => {
+            let p: TelemetryConfig =
+                serde_json::from_value(raw.payload).map_err(|_| SimulationError::protocol())?;
+            if !(10..=100).contains(&p.rate_hz) {
+                return Err(SimulationError::protocol());
+            }
+            ProtocolResponse::TelemetryConfigChanged(p)
+        }
         "state_changed" => {
             if raw.payload.get("state").and_then(Value::as_str) == Some("stopping") {
                 ProtocolResponse::ProcessStopping
@@ -360,7 +692,12 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
     if raw.request_id.is_none()
         && !matches!(
             response,
-            ProtocolResponse::Pose(_) | ProtocolResponse::Warning(_) | ProtocolResponse::Error(_)
+            ProtocolResponse::Pose(_)
+                | ProtocolResponse::Telemetry(_)
+                | ProtocolResponse::MotionCommandChanged(_)
+                | ProtocolResponse::TelemetryConfigChanged(_)
+                | ProtocolResponse::Warning(_)
+                | ProtocolResponse::Error(_)
         )
     {
         return Err(SimulationError::protocol());
@@ -374,4 +711,127 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
 pub fn sequence_is_newer(candidate: u32, current: u32) -> bool {
     let difference = candidate.wrapping_sub(current);
     difference != 0 && difference < (1_u32 << 31)
+}
+
+#[cfg(test)]
+mod telemetry_tests {
+    use super::*;
+
+    fn telemetry() -> RobotTelemetry {
+        RobotTelemetry {
+            sequence: 1,
+            simulation_time: 0.1,
+            wall_time: 1_700_000_000_000,
+            model_id: GO2_MODEL_ID.into(),
+            source: TelemetrySource {
+                kind: "mujoco-simulation".into(),
+                connected_to_physical_robot: false,
+            },
+            root: RootTelemetry {
+                position: [0.0, 0.3, 0.0],
+                orientation: [0.0, 0.0, 0.0, 1.0],
+                linear_velocity_world: [0.0; 3],
+                angular_velocity_world: [0.0; 3],
+                linear_speed: 0.0,
+                angular_speed: 0.0,
+            },
+            imu: ImuTelemetry {
+                orientation: [0.0, 0.0, 0.0, 1.0],
+                angular_velocity_body: [0.0; 3],
+                linear_acceleration_body: [0.0; 3],
+                frame: "body".into(),
+                includes_gravity: false,
+                source: "root-body-state".into(),
+            },
+            joints: GO2_JOINT_NAMES
+                .iter()
+                .map(|name| JointTelemetry {
+                    name: (*name).into(),
+                    position: 0.0,
+                    velocity: 0.0,
+                    actuator_torque: 0.0,
+                    actuator_force: 0.0,
+                    control_target: 0.0,
+                    lower_limit: Some(-1.0),
+                    upper_limit: Some(1.0),
+                    limited: true,
+                })
+                .collect(),
+            feet: ["FL", "FR", "RL", "RR"]
+                .map(|name| FootTelemetry {
+                    name: name.into(),
+                    in_contact: true,
+                    contact_count: 1,
+                    normal_force: 30.0,
+                    force_world: [0.0, 30.0, 0.0],
+                    position_world: [0.0; 3],
+                })
+                .into(),
+            command: MotionCommandStatus {
+                sequence: 0,
+                mode: MotionCommandMode::Stand,
+                forward_velocity: 0.0,
+                lateral_velocity: 0.0,
+                yaw_rate: 0.0,
+                body_height: 0.3,
+                valid_for_ms: 500,
+                age_ms: 0,
+                timed_out: false,
+                applied_by_controller: true,
+                body_height_applied: false,
+                controller_availability: ControllerAvailability::StandHold,
+            },
+            performance: PerformanceTelemetry {
+                physics_frequency_hz: 500.0,
+                control_frequency_hz: 100.0,
+                pose_publish_frequency_hz: 60.0,
+                telemetry_publish_frequency_hz: 50.0,
+                real_time_factor: 1.0,
+                physics_step_mean_ms: 0.1,
+                physics_step_max_ms: 0.2,
+                control_step_mean_ms: 0.01,
+                control_step_max_ms: 0.02,
+                dropped_pose_events: 0,
+                dropped_telemetry_events: 0,
+                catch_up_step_count: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn motion_validation_rejects_nonfinite_and_bounds() {
+        let mut command = telemetry().command;
+        assert!(command.validate().is_ok());
+        command.forward_velocity = f64::NAN;
+        assert!(command.validate().is_err());
+        command.forward_velocity = 1.51;
+        assert!(command.validate().is_err());
+        command.forward_velocity = 0.0;
+        command.valid_for_ms = 99;
+        assert!(command.validate().is_err());
+    }
+
+    #[test]
+    fn telemetry_validation_rejects_corrupt_semantics() {
+        let mut value = telemetry();
+        assert!(value.validate().is_ok());
+        value.root.orientation = [0.0; 4];
+        assert!(value.validate().is_err());
+        value = telemetry();
+        value.joints[1].name = value.joints[0].name.clone();
+        assert!(value.validate().is_err());
+        value = telemetry();
+        value.feet[0].normal_force = -1.0;
+        assert!(value.validate().is_err());
+        value = telemetry();
+        value.source.connected_to_physical_robot = true;
+        assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn sequence_comparison_is_wrap_safe() {
+        assert!(sequence_is_newer(0, u32::MAX));
+        assert!(!sequence_is_newer(10, 10));
+        assert!(!sequence_is_newer(9, 10));
+    }
 }

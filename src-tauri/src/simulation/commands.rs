@@ -1,7 +1,10 @@
 use super::{
     error::SimulationError,
     manager::{PingResult, SimulationManager, SimulationStatus},
-    protocol::{ModelLoadedPayload, RobotPose, SimulationEvent, SimulationState},
+    protocol::{
+        ModelLoadedPayload, MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry,
+        SimulationEvent, SimulationState, TelemetryConfig,
+    },
 };
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 
@@ -103,6 +106,36 @@ pub async fn simulation_set_speed(
 #[tauri::command]
 pub fn simulation_latest_pose(manager: State<'_, SimulationManager>) -> Option<RobotPose> {
     manager.latest_pose()
+}
+#[tauri::command]
+pub async fn simulation_set_motion_command(
+    command: MotionCommand,
+    manager: State<'_, SimulationManager>,
+) -> Result<MotionCommandStatus, SimulationError> {
+    let manager = manager.inner().clone();
+    run_blocking(move || manager.set_motion_command(command)).await
+}
+#[tauri::command]
+pub async fn simulation_clear_motion_command(
+    manager: State<'_, SimulationManager>,
+) -> Result<MotionCommandStatus, SimulationError> {
+    let manager = manager.inner().clone();
+    run_blocking(move || manager.clear_motion_command()).await
+}
+#[tauri::command]
+pub async fn simulation_set_telemetry_rate(
+    rate_hz: u16,
+    manager: State<'_, SimulationManager>,
+) -> Result<TelemetryConfig, SimulationError> {
+    let manager = manager.inner().clone();
+    run_blocking(move || manager.set_telemetry_rate(rate_hz)).await
+}
+#[tauri::command]
+pub async fn simulation_latest_telemetry(
+    manager: State<'_, SimulationManager>,
+) -> Result<RobotTelemetry, SimulationError> {
+    let manager = manager.inner().clone();
+    run_blocking(move || manager.get_latest_telemetry()).await
 }
 #[tauri::command]
 pub fn simulation_subscribe(

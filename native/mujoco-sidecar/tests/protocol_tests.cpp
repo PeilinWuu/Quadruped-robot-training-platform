@@ -27,6 +27,13 @@ bool finite_pose(const Json& pose) {
   for (const auto& joint : pose["joints"]) if (!std::isfinite(joint["position"].get<double>())) return false;
   return std::isfinite(pose["simulationTime"].get<double>());
 }
+bool finite_json_numbers(const Json& value) {
+  if (value.is_number_float()) return std::isfinite(value.get<double>());
+  if (value.is_array() || value.is_object()) {
+    for (const auto& child : value) if (!finite_json_numbers(child)) return false;
+  }
+  return true;
+}
 std::string command(const char* id, const char* type, Json payload) {
   return Json{{"protocolVersion", 1}, {"requestId", id}, {"type", type}, {"timestamp", 1}, {"payload", std::move(payload)}}.dump();
 }
@@ -66,6 +73,31 @@ int main() {
   engine.reset();
   for (int index = 0; index < 5; ++index) expect(finite_pose(engine.step(1000).payload), "thousands stable");
   expect(engine.latest_pose().dump().size() < sidecar::kMaxLineBytes, "pose under line limit");
+  const auto minimal_telemetry = engine.get_latest_telemetry();
+  expect(minimal_telemetry.ok && minimal_telemetry.payload["modelId"] == "minimal-quadruped-v1", "minimal telemetry profile");
+  expect(minimal_telemetry.payload["joints"].size() == 12 && minimal_telemetry.payload["feet"].size() == 4, "minimal telemetry mapping sizes");
+  expect(finite_json_numbers(minimal_telemetry.payload), "minimal telemetry finite");
+  expect(minimal_telemetry.payload.dump().size() < sidecar::kMaxLineBytes, "telemetry under line limit");
+  expect(engine.set_telemetry_rate(10).ok && engine.set_telemetry_rate(100).ok, "telemetry rate boundaries");
+  expect(!engine.set_telemetry_rate(9).ok && !engine.set_telemetry_rate(101).ok, "telemetry rate rejects out of range");
+  sidecar::MotionCommand stand{11, sidecar::MotionMode::stand, 1.0, -0.5, 1.0, 0.3, 500};
+  expect(sidecar::valid_motion_command(stand), "motion command legal");
+  const auto stand_status = engine.set_motion_command(stand);
+  expect(stand_status.ok && stand_status.payload["forwardVelocity"] == 0.0 && stand_status.payload["appliedByController"], "stand zeros velocity and applies hold");
+  sidecar::MotionCommand locomotion{12, sidecar::MotionMode::locomotion, 0.2, -0.1, 0.3, 0.3, 100};
+  const auto locomotion_status = engine.set_motion_command(locomotion);
+  expect(locomotion_status.ok && !locomotion_status.payload["appliedByController"] && locomotion_status.payload["controllerAvailability"] == "not-implemented", "locomotion accepted but not applied");
+  sidecar::MotionCommand invalid = locomotion; invalid.forward_velocity = std::nan("");
+  expect(!sidecar::valid_motion_command(invalid), "nonfinite motion rejected");
+  invalid = locomotion; invalid.body_height = 0.41;
+  expect(!sidecar::valid_motion_command(invalid), "motion bounds rejected");
+  std::this_thread::sleep_for(std::chrono::milliseconds(110));
+  const auto timed_out = engine.get_latest_telemetry().payload["command"];
+  expect(timed_out["timedOut"] && timed_out["forwardVelocity"] == 0.0 && !timed_out["appliedByController"], "command timeout zeros target without false execution");
+  const auto cleared = engine.clear_motion_command();
+  expect(cleared.ok && cleared.payload["mode"] == "stand" && !cleared.payload["timedOut"], "clear command restores stand");
+  std::this_thread::sleep_for(std::chrono::milliseconds(110));
+  expect(!engine.get_latest_telemetry().payload["command"]["timedOut"], "cleared stand does not acquire a timeout");
   expect(engine.set_speed(0.25).ok && engine.set_speed(4.0).ok, "speed boundaries");
   expect(!engine.set_speed(0.0).ok && !engine.set_speed(4.01).ok && !engine.set_speed(std::nan("")).ok, "invalid speeds");
   expect(engine.set_speed(1.0).ok, "default wall speed restored");
@@ -99,6 +131,10 @@ int main() {
     expect(go2_home["joints"][index]["name"] == go2_names[index], "Go2 joint order");
   }
   expect(go2_home["simulationTime"] == 0.0 && finite_pose(go2_home), "Go2 home finite");
+  const auto go2_telemetry = engine.get_latest_telemetry().payload;
+  expect(go2_telemetry["modelId"] == "unitree-go2-menagerie" && go2_telemetry["joints"].size() == 12, "Go2 telemetry profile");
+  expect(go2_telemetry["feet"][0]["name"] == "FL" && go2_telemetry["feet"][1]["name"] == "FR" && go2_telemetry["feet"][2]["name"] == "RL" && go2_telemetry["feet"][3]["name"] == "RR", "Go2 fixed foot mapping");
+  expect(finite_json_numbers(go2_telemetry) && go2_telemetry.dump().size() < sidecar::kMaxLineBytes, "Go2 telemetry finite and bounded");
   for (int index = 0; index < 5; ++index) {
     const auto advanced = engine.step(1000);
     expect(advanced.ok && finite_pose(advanced.payload), "Go2 thousands stable");
@@ -121,7 +157,7 @@ int main() {
   std::vector<std::string> protocol_events;
   sidecar::ProtocolHandler protocol(TEST_RESOURCE_ROOT, [&](std::string line) { protocol_events.push_back(std::move(line)); });
   auto hello = Json::parse(protocol.process_line(command("h", "hello", {{"clientName", "tauri-host"}, {"clientProtocolVersion", 1}})).response);
-  expect(hello["type"] == "ready" && hello["payload"]["capabilities"].size() == 10, "hello capabilities");
+  expect(hello["type"] == "ready" && hello["payload"]["capabilities"].size() == 14, "hello capabilities");
   expect(Json::parse(protocol.process_line(command("l", "load_model", {{"modelId", "minimal-quadruped-v1"}})).response)["type"] == "model_loaded", "protocol load");
   expect(Json::parse(protocol.process_line(command("lg", "load_model", {{"modelId", "unitree-go2-menagerie"}})).response)["type"] == "model_loaded", "protocol Go2 load");
   expect(Json::parse(protocol.process_line(command("s", "start", Json::object())).response)["payload"]["state"] == "running", "protocol start");
@@ -130,6 +166,11 @@ int main() {
   expect(Json::parse(protocol.process_line(command("r", "reset", Json::object())).response)["payload"]["state"] == "loaded", "protocol reset");
   expect(Json::parse(protocol.process_line(command("x", "stop", Json::object())).response)["payload"]["state"] == "stopped", "protocol stop");
   expect(Json::parse(protocol.process_line(command("v", "set_speed", {{"speed", 1.0}})).response)["payload"]["speed"] == 1.0, "protocol speed");
+  const Json motion_payload{{"sequence", 1}, {"mode", "locomotion"}, {"forwardVelocity", 0.2}, {"lateralVelocity", 0.0}, {"yawRate", 0.1}, {"bodyHeight", 0.3}, {"validForMs", 500}};
+  expect(Json::parse(protocol.process_line(command("mc", "set_motion_command", motion_payload)).response)["type"] == "motion_command_changed", "protocol motion command");
+  expect(Json::parse(protocol.process_line(command("tc", "set_telemetry_rate", {{"rateHz", 50}})).response)["payload"]["rateHz"] == 50, "protocol telemetry rate");
+  expect(Json::parse(protocol.process_line(command("gt", "get_latest_telemetry", Json::object())).response)["type"] == "telemetry", "protocol latest telemetry");
+  expect(Json::parse(protocol.process_line(command("cc", "clear_motion_command", Json::object())).response)["payload"]["mode"] == "stand", "protocol clear command");
   expect(Json::parse(protocol.process_line(command("g", "ping", {{"nonce", "n"}})).response)["type"] == "pong", "ping retained");
   const auto shutdown = protocol.process_line(command("q", "shutdown", Json::object()));
   expect(shutdown.should_stop, "shutdown joins physics");

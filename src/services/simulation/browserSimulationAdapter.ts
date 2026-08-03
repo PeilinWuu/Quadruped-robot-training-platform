@@ -24,5 +24,9 @@ export const browserSimulationAdapter: SimulationAdapter = {
   stopSimulation: unavailable,
   setSpeed: unavailable,
   getLatestPose: async () => null,
+  setMotionCommand: unavailable,
+  clearMotionCommand: unavailable,
+  setTelemetryRate: unavailable,
+  getLatestTelemetry: async () => null,
   subscribe: async () => ({ unsubscribe: async () => undefined }),
 }
