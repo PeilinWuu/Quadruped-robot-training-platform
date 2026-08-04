@@ -25,7 +25,7 @@ fn manager_starts_idle_and_unloaded() {
 }
 #[test]
 fn model_loaded_parses() {
-    let m = parse_response_line(&envelope("model_loaded",json!({"modelId":MINIMAL_MODEL_ID,"timestep":0.002,"jointCount":12,"actuatorCount":12,"bodyCount":14}))).unwrap();
+    let m = parse_response_line(&envelope("model_loaded",json!({"modelId":MINIMAL_MODEL_ID,"environmentId":"flat-ground-v1","environment":{"id":"flat-ground-v1","displayName":"纯平地演示场景","floorHeight":0.0,"halfExtent":10.0,"demoBoundaryHalfExtent":8.0,"spawnPosition":[0.0,0.58,0.0],"spawnOrientation":[0.0,0.0,0.0,1.0],"friction":[0.9,0.1,0.01],"solref":[0.02,1.0],"solimp":[0.9,0.95,0.001]},"timestep":0.002,"jointCount":12,"actuatorCount":12,"bodyCount":14}))).unwrap();
     assert!(matches!(m.response, ProtocolResponse::ModelLoaded(_)));
 }
 #[test]
@@ -149,6 +149,7 @@ fn speed_invalid_values() {
 fn load_command_contains_only_fixed_model_id() {
     let line = ProtocolCommand::LoadModel {
         model_id: MINIMAL_MODEL_ID.into(),
+        environment_id: super::protocol::EnvironmentId::FlatGroundV1,
     }
     .to_line("r".into(), 1)
     .unwrap();
@@ -160,13 +161,15 @@ fn load_command_contains_only_fixed_model_id() {
 fn load_command_accepts_go2_and_rejects_unlisted_models() {
     let line = ProtocolCommand::LoadModel {
         model_id: super::protocol::GO2_MODEL_ID.into(),
+        environment_id: super::protocol::EnvironmentId::FlatGroundV1,
     }
     .to_line("go2".into(), 1)
     .unwrap();
     assert!(line.contains(super::protocol::GO2_MODEL_ID));
     assert_eq!(
         ProtocolCommand::LoadModel {
-            model_id: "../go2.xml".into()
+            model_id: "../go2.xml".into(),
+            environment_id: super::protocol::EnvironmentId::FlatGroundV1,
         }
         .to_line("bad".into(), 1)
         .unwrap_err()

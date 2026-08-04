@@ -5,7 +5,7 @@ import type {
 } from '../types'
 import { services } from '../services'
 import type {
-  JointPose, ModelMetadata, MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry, SimulationEvent, SimulationProcessState,
+  CollisionEvent, JointPose, ModelMetadata, MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry, SimulationEvent, SimulationProcessState,
   SimulationState, SimulationStatus, SimulationModelId,
 } from '../services/simulation/types'
 import { DEFAULT_SIMULATION_MODEL_ID } from '../services/simulation/types'
@@ -31,6 +31,7 @@ export interface SimulationUiState {
   latestPose: SimulationPoseSummary | null
   latestTelemetry: RobotTelemetry | null
   latestMotionCommand: MotionCommandStatus | null
+  latestCollisionEvent: CollisionEvent | null
   busy: boolean
   visualMode: Go2VisualMode | 'primitive-only'
   visualPhase: 'idle' | 'loading' | 'ready' | 'fallback'
@@ -54,6 +55,7 @@ interface AppState {
   setMotionCommand: (command: MotionCommand) => Promise<SimulationActionResult>
   clearMotionCommand: () => Promise<SimulationActionResult>
   setTelemetryRate: (rateHz: number) => Promise<SimulationActionResult>
+  clearLatestCollisionEvent: () => void
 }
 
 const INITIAL_SIMULATION: SimulationUiState = {
@@ -61,7 +63,7 @@ const INITIAL_SIMULATION: SimulationUiState = {
   selectedModelId: DEFAULT_SIMULATION_MODEL_ID,
   processState: services.simulation.desktop ? 'idle' : 'unavailable',
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
-  latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false,
+  latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false,
   visualMode: 'official-mesh', visualPhase: 'idle', visualError: null,
 }
 
@@ -179,11 +181,12 @@ export const useAppStore = create<AppState>((set, get) => {
       try { await services.simulation.setTelemetryRate(rateHz); return { ok: true } }
       catch (error) { return { ok: false, error: safeSimulationError(error) } }
     },
+    clearLatestCollisionEvent: () => set((state) => ({ simulation: { ...state.simulation, latestCollisionEvent: null } })),
     shutdownSimulation: async () => {
       clearSimulationBridge()
       try {
         const status = await services.simulation.shutdown()
-        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false } }))
+        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false } }))
       } catch {
         set((state) => ({ simulation: { ...state.simulation, processState: 'failed', simulationState: 'unloaded', latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false, lastError: '仿真服务清理失败，应用退出时将执行进程级清理' } }))
       }
@@ -223,7 +226,7 @@ function handleSimulationEvent(event: SimulationEvent): void {
     return
   }
   if (event.type === 'model_loaded') {
-    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null, latestTelemetry: null, latestMotionCommand: null } }))
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null } }))
   } else if (event.type === 'state_changed') {
     useAppStore.setState((state) => ({ simulation: {
       ...state.simulation,
@@ -234,6 +237,8 @@ function handleSimulationEvent(event: SimulationEvent): void {
     useAppStore.setState((state) => ({ simulation: { ...state.simulation, lastError: '仿真服务报告错误，请重试或重新启动仿真' } }))
   } else if (event.type === 'motion_command_changed') {
     useAppStore.setState((state) => ({ simulation: { ...state.simulation, latestMotionCommand: event.payload } }))
+  } else if (event.type === 'collision') {
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, latestCollisionEvent: event.payload } }))
   }
 }
 

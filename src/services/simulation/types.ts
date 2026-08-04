@@ -4,6 +4,18 @@ export type SimulationProcessState =
 
 export type SimulationState = 'unloaded' | 'loaded' | 'running' | 'paused' | 'stopped'
 export type SimulationModelId = 'unitree-go2-menagerie' | 'minimal-quadruped-v1'
+export type EnvironmentId = 'flat-ground-v1'
+export interface EnvironmentMetadata {
+  id: EnvironmentId; displayName: string; floorHeight: number; halfExtent: number
+  demoBoundaryHalfExtent: number; spawnPosition: [number, number, number]
+  spawnOrientation: [number, number, number, number]
+  friction: [number, number, number]; solref: [number, number]; solimp: [number, number, number]
+}
+export const FLAT_GROUND_ENVIRONMENT: EnvironmentMetadata = {
+  id: 'flat-ground-v1', displayName: '纯平地演示场景', floorHeight: 0, halfExtent: 10,
+  demoBoundaryHalfExtent: 8, spawnPosition: [0, 0, 0], spawnOrientation: [0, 0, 0, 1],
+  friction: [.9, .1, .01], solref: [.02, 1], solimp: [.9, .95, .001],
+}
 export interface SimulationModelDescription {
   id: SimulationModelId; displayName: string; source: string; isDefault: boolean
   visualProfile: string; description: string
@@ -60,6 +72,24 @@ export interface PerformanceTelemetry {
   controlStepMeanMs: number; controlStepMaxMs: number
   droppedPoseEvents: number; droppedTelemetryEvents: number; catchUpStepCount: number
 }
+export type CollisionCategory = 'feet' | 'calves' | 'thighs' | 'hips' | 'torso' | 'head' | 'otherRobot'
+export type FallReason = 'none' | 'torso-contact' | 'orientation' | 'height' | 'multiple'
+export interface StrongestContact {
+  category: CollisionCategory; bodyName: string; geomName: string; normalForce: number
+  positionWorld: [number, number, number]
+}
+export interface CollisionTelemetry {
+  environmentId: EnvironmentId; totalEnvironmentContacts: number; footContacts: number
+  nonFootContacts: number; torsoContacts: number; headContacts: number; limbContacts: number
+  maxNormalForce: number; totalNormalForce: number; strongestContact: StrongestContact | null
+  isFallen: boolean; fallReason: FallReason; isOutOfBounds: boolean
+  rootHeightAboveFloor: number; roll: number; pitch: number
+}
+export type CollisionEventKind = 'collision_started' | 'collision_ended' | 'impact_detected' | 'fall_detected' | 'recovered' | 'out_of_bounds' | 'returned_in_bounds'
+export interface CollisionEvent {
+  kind: CollisionEventKind; simulationTime: number; category: CollisionCategory
+  bodyName: string; geomName: string; normalForce: number; positionWorld: [number, number, number]
+}
 export interface RobotTelemetry {
   sequence: number; simulationTime: number; wallTime: number; modelId: SimulationModelId
   source: { kind: 'mujoco-simulation'; connectedToPhysicalRobot: false }
@@ -76,11 +106,14 @@ export interface RobotTelemetry {
   }
   joints: JointTelemetry[]
   feet: FootTelemetry[]
+  collision: CollisionTelemetry
   command: MotionCommandStatus
   performance: PerformanceTelemetry
 }
 export interface ModelMetadata {
   modelId: string
+  environmentId: EnvironmentId
+  environment: EnvironmentMetadata
   timestep: number
   jointCount: number
   actuatorCount: number
@@ -105,6 +138,7 @@ export type SimulationEvent =
   | { type: 'telemetry'; payload: RobotTelemetry }
   | { type: 'motion_command_changed'; payload: MotionCommandStatus }
   | { type: 'telemetry_config_changed'; payload: TelemetryConfig }
+  | { type: 'collision'; payload: CollisionEvent }
   | { type: 'state_changed'; payload: { state: SimulationState; speed?: number } }
   | { type: 'warning' | 'error'; payload: SimulationErrorInfo }
 
@@ -117,7 +151,11 @@ export interface SimulationAdapter {
   getStatus(): Promise<SimulationStatus>
   ping(): Promise<{ latencyMs: number; nonceVerified: boolean }>
   stopSidecar(): Promise<SimulationStatus>
-  loadModel(modelId: SimulationModelId): Promise<ModelMetadata>
+  loadModel(modelId: SimulationModelId, environmentId?: EnvironmentId): Promise<ModelMetadata>
+  listAvailableEnvironments(): Promise<EnvironmentMetadata[]>
+  getCurrentEnvironment(): Promise<EnvironmentMetadata | null>
+  getLatestCollisionState(): Promise<CollisionTelemetry | null>
+  getLatestCollisionEvent(): Promise<CollisionEvent | null>
   startSimulation(): Promise<SimulationState>
   pauseSimulation(): Promise<SimulationState>
   stepSimulation(steps: number): Promise<RobotPose>

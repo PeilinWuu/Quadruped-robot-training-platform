@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { services } from '../services'
 import type { RobotPose, SimulationEvent, SimulationListener, SimulationStatus } from '../services/simulation/types'
 import { useAppStore } from './useAppStore'
+import { FLAT_GROUND_ENVIRONMENT } from '../services/simulation/types'
 
 const READY: SimulationStatus = {
   state: 'ready', simulationState: 'running', sidecarVersion: 'test',
-  model: { modelId: 'minimal-quadruped-v1', timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 14 },
+  model: { modelId: 'minimal-quadruped-v1', environmentId: 'flat-ground-v1', environment: FLAT_GROUND_ENVIRONMENT, timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 14 },
   speed: 1, startedAt: 1, error: null,
 }
 const IDLE: SimulationStatus = { ...READY, state: 'idle', simulationState: 'unloaded', model: null }

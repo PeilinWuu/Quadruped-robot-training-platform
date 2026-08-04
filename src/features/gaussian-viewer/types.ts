@@ -7,6 +7,7 @@ import type {
   RobotOverlayStatus,
 } from './robot/RobotOverlayRuntime'
 import type { Go2VisualMode } from './robot/go2VisualManifest'
+import type { EnvironmentOverlayStatus } from './environment/environmentTypes'
 
 export const MAX_SCENE_BYTES = 50 * 1024 * 1024
 
@@ -80,6 +81,10 @@ export interface ViewerRuntime {
   getRobotOverlayStatus?(): RobotOverlayStatus | null
   setRobotVisualMode?(mode: Go2VisualMode): void
   reloadRobotVisuals?(): void
+  setEnvironmentVisible?(visible: boolean): void
+  setEnvironmentGridVisible?(visible: boolean): void
+  focusEnvironment?(): boolean
+  getEnvironmentOverlayStatus?(): EnvironmentOverlayStatus | null
   dispose(): void
   getStatus(): ViewerRuntimeStatus
 }

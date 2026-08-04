@@ -47,7 +47,10 @@ describe('simulation adapters', () => {
     await adapter.stepSimulation(3); await adapter.resetSimulation(); await adapter.setSpeed(2)
     expect(mocks.invoke).toHaveBeenCalledWith('simulation_run_step', { steps: 3 })
     expect(mocks.invoke).toHaveBeenCalledWith('simulation_set_speed', { speed: 2 })
-    expect(mocks.invoke).toHaveBeenCalledWith('simulation_load_model', { modelId: 'unitree-go2-menagerie' })
+    expect(mocks.invoke).toHaveBeenCalledWith('simulation_load_model', {
+      modelId: 'unitree-go2-menagerie',
+      environmentId: 'flat-ground-v1',
+    })
   })
 
   it('maps virtual motion and telemetry commands without arbitrary payloads', async () => {

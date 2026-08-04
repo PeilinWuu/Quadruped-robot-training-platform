@@ -9,6 +9,7 @@ const MAX_REQUEST_ID_BYTES: usize = 64;
 const EXPECTED_JOINTS: usize = 12;
 pub const MINIMAL_MODEL_ID: &str = "minimal-quadruped-v1";
 pub const GO2_MODEL_ID: &str = "unitree-go2-menagerie";
+pub const FLAT_GROUND_ENVIRONMENT_ID: &str = "flat-ground-v1";
 pub const MINIMAL_JOINT_NAMES: [&str; 12] = [
     "front_left_hip_abduction",
     "front_left_hip_flexion",
@@ -42,6 +43,60 @@ pub fn valid_model_id(value: &str) -> bool {
     matches!(value, MINIMAL_MODEL_ID | GO2_MODEL_ID)
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EnvironmentId {
+    #[serde(rename = "flat-ground-v1")]
+    FlatGroundV1,
+}
+
+impl EnvironmentId {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FlatGroundV1 => FLAT_GROUND_ENVIRONMENT_ID,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EnvironmentMetadata {
+    pub id: EnvironmentId,
+    pub display_name: String,
+    pub floor_height: f64,
+    pub half_extent: f64,
+    pub demo_boundary_half_extent: f64,
+    pub spawn_position: [f64; 3],
+    pub spawn_orientation: [f64; 4],
+    pub friction: [f64; 3],
+    pub solref: [f64; 2],
+    pub solimp: [f64; 3],
+}
+
+impl EnvironmentMetadata {
+    pub fn validate(&self) -> Result<(), SimulationError> {
+        if self.display_name.is_empty()
+            || self.display_name.len() > 64
+            || !finite(self.spawn_position)
+            || !normalized(&self.spawn_orientation)
+            || !finite([
+                self.floor_height,
+                self.half_extent,
+                self.demo_boundary_half_extent,
+            ])
+            || !finite(self.friction)
+            || !finite(self.solref)
+            || !finite(self.solimp)
+            || self.half_extent != 10.0
+            || self.demo_boundary_half_extent != 8.0
+            || self.floor_height != 0.0
+            || self.friction != [0.9, 0.1, 0.01]
+        {
+            return Err(SimulationError::protocol());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProtocolEnvelope<T> {
@@ -56,18 +111,29 @@ struct ProtocolEnvelope<T> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProtocolCommand {
     Hello,
-    Ping { nonce: String },
+    Ping {
+        nonce: String,
+    },
     Shutdown,
-    LoadModel { model_id: String },
+    LoadModel {
+        model_id: String,
+        environment_id: EnvironmentId,
+    },
     Start,
     Pause,
-    Step { steps: u16 },
+    Step {
+        steps: u16,
+    },
     Reset,
     Stop,
-    SetSpeed { speed: f64 },
+    SetSpeed {
+        speed: f64,
+    },
     SetMotionCommand(MotionCommand),
     ClearMotionCommand,
-    SetTelemetryRate { rate_hz: u16 },
+    SetTelemetryRate {
+        rate_hz: u16,
+    },
     GetLatestTelemetry,
 }
 
@@ -80,14 +146,20 @@ impl ProtocolCommand {
             ),
             Self::Ping { nonce } => ("ping", json!({"nonce":nonce})),
             Self::Shutdown => ("shutdown", json!({})),
-            Self::LoadModel { model_id } => {
+            Self::LoadModel {
+                model_id,
+                environment_id,
+            } => {
                 if !valid_model_id(model_id) {
                     return Err(SimulationError::new(
                         "UNKNOWN_MODEL",
                         "The simulation model is not allowed.",
                     ));
                 }
-                ("load_model", json!({"modelId":model_id}))
+                (
+                    "load_model",
+                    json!({"modelId":model_id,"environmentId":environment_id.as_str()}),
+                )
             }
             Self::Start => ("start", json!({})),
             Self::Pause => ("pause", json!({})),
@@ -302,6 +374,141 @@ pub struct PerformanceTelemetry {
     pub catch_up_step_count: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CollisionCategory {
+    Feet,
+    Calves,
+    Thighs,
+    Hips,
+    Torso,
+    Head,
+    OtherRobot,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum FallReason {
+    None,
+    TorsoContact,
+    Orientation,
+    Height,
+    Multiple,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StrongestContact {
+    pub category: CollisionCategory,
+    pub body_name: String,
+    pub geom_name: String,
+    pub normal_force: f64,
+    pub position_world: [f64; 3],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CollisionTelemetry {
+    pub environment_id: EnvironmentId,
+    pub total_environment_contacts: u32,
+    pub foot_contacts: u32,
+    pub non_foot_contacts: u32,
+    pub torso_contacts: u32,
+    pub head_contacts: u32,
+    pub limb_contacts: u32,
+    pub max_normal_force: f64,
+    pub total_normal_force: f64,
+    pub strongest_contact: Option<StrongestContact>,
+    pub is_fallen: bool,
+    pub fall_reason: FallReason,
+    pub is_out_of_bounds: bool,
+    pub root_height_above_floor: f64,
+    pub roll: f64,
+    pub pitch: f64,
+}
+
+impl CollisionTelemetry {
+    pub fn validate(&self) -> Result<(), SimulationError> {
+        let counts_consistent = self.total_environment_contacts
+            == self.foot_contacts.saturating_add(self.non_foot_contacts)
+            && self.non_foot_contacts
+                == self
+                    .torso_contacts
+                    .saturating_add(self.head_contacts)
+                    .saturating_add(self.limb_contacts);
+        if !counts_consistent
+            || !finite([
+                self.max_normal_force,
+                self.total_normal_force,
+                self.root_height_above_floor,
+                self.roll,
+                self.pitch,
+            ])
+            || self.max_normal_force < 0.0
+            || self.total_normal_force < 0.0
+            || self.roll.abs() > std::f64::consts::PI + 1e-6
+            || self.pitch.abs() > std::f64::consts::FRAC_PI_2 + 1e-6
+            || self.is_fallen != (self.fall_reason != FallReason::None)
+        {
+            return Err(SimulationError::protocol());
+        }
+        if let Some(contact) = &self.strongest_contact {
+            if contact.body_name.len() > 64
+                || contact.geom_name.len() > 96
+                || !contact.normal_force.is_finite()
+                || contact.normal_force < 0.0
+                || !finite(contact.position_world)
+                || (contact.normal_force - self.max_normal_force).abs() > 1e-6
+            {
+                return Err(SimulationError::protocol());
+            }
+        } else if self.total_environment_contacts != 0 || self.max_normal_force != 0.0 {
+            return Err(SimulationError::protocol());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CollisionEventKind {
+    CollisionStarted,
+    CollisionEnded,
+    ImpactDetected,
+    FallDetected,
+    Recovered,
+    OutOfBounds,
+    ReturnedInBounds,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CollisionEvent {
+    pub kind: CollisionEventKind,
+    pub simulation_time: f64,
+    pub category: CollisionCategory,
+    pub body_name: String,
+    pub geom_name: String,
+    pub normal_force: f64,
+    pub position_world: [f64; 3],
+}
+
+impl CollisionEvent {
+    pub fn validate(&self) -> Result<(), SimulationError> {
+        if !self.simulation_time.is_finite()
+            || self.simulation_time < 0.0
+            || !self.normal_force.is_finite()
+            || self.normal_force < 0.0
+            || !finite(self.position_world)
+            || self.body_name.len() > 64
+            || self.geom_name.len() > 96
+        {
+            return Err(SimulationError::protocol());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RobotTelemetry {
@@ -314,6 +521,7 @@ pub struct RobotTelemetry {
     pub imu: ImuTelemetry,
     pub joints: Vec<JointTelemetry>,
     pub feet: Vec<FootTelemetry>,
+    pub collision: CollisionTelemetry,
     pub command: MotionCommandStatus,
     pub performance: PerformanceTelemetry,
 }
@@ -386,6 +594,11 @@ impl RobotTelemetry {
             }
         }
         self.command.validate()?;
+        self.collision.validate()?;
+        let summed_foot_contacts = self.feet.iter().map(|foot| foot.contact_count).sum::<u32>();
+        if summed_foot_contacts != self.collision.foot_contacts {
+            return Err(SimulationError::protocol());
+        }
         let performance = &self.performance;
         if !finite([
             performance.physics_frequency_hz,
@@ -427,6 +640,8 @@ pub enum SimulationState {
 #[serde(rename_all = "camelCase")]
 pub struct ModelLoadedPayload {
     pub model_id: String,
+    pub environment_id: EnvironmentId,
+    pub environment: EnvironmentMetadata,
     pub timestep: f64,
     pub joint_count: u32,
     pub actuator_count: u32,
@@ -536,6 +751,7 @@ pub enum SimulationEvent {
     Telemetry(Box<RobotTelemetry>),
     MotionCommandChanged(MotionCommandStatus),
     TelemetryConfigChanged(TelemetryConfig),
+    Collision(CollisionEvent),
     StateChanged(StateChangedPayload),
     Warning(ProtocolErrorPayload),
     Error(ProtocolErrorPayload),
@@ -550,6 +766,7 @@ pub enum ProtocolResponse {
     Telemetry(Box<RobotTelemetry>),
     MotionCommandChanged(MotionCommandStatus),
     TelemetryConfigChanged(TelemetryConfig),
+    Collision(CollisionEvent),
     StateChanged(StateChangedPayload),
     ProcessStopping,
     Warning(ProtocolErrorPayload),
@@ -639,6 +856,10 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
             {
                 return Err(SimulationError::protocol());
             }
+            p.environment.validate()?;
+            if p.environment.id != p.environment_id {
+                return Err(SimulationError::protocol());
+            }
             ProtocolResponse::ModelLoaded(p)
         }
         "pose" => {
@@ -666,6 +887,25 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
                 return Err(SimulationError::protocol());
             }
             ProtocolResponse::TelemetryConfigChanged(p)
+        }
+        "collision_started" | "collision_ended" | "impact_detected" | "fall_detected"
+        | "recovered" | "out_of_bounds" | "returned_in_bounds" => {
+            let event: CollisionEvent =
+                serde_json::from_value(raw.payload).map_err(|_| SimulationError::protocol())?;
+            event.validate()?;
+            let expected = match raw.message_type.as_str() {
+                "collision_started" => CollisionEventKind::CollisionStarted,
+                "collision_ended" => CollisionEventKind::CollisionEnded,
+                "impact_detected" => CollisionEventKind::ImpactDetected,
+                "fall_detected" => CollisionEventKind::FallDetected,
+                "recovered" => CollisionEventKind::Recovered,
+                "out_of_bounds" => CollisionEventKind::OutOfBounds,
+                _ => CollisionEventKind::ReturnedInBounds,
+            };
+            if event.kind != expected {
+                return Err(SimulationError::protocol());
+            }
+            ProtocolResponse::Collision(event)
         }
         "state_changed" => {
             if raw.payload.get("state").and_then(Value::as_str) == Some("stopping") {
@@ -696,6 +936,7 @@ pub fn parse_response_line(bytes: &[u8]) -> Result<ParsedMessage, SimulationErro
                 | ProtocolResponse::Telemetry(_)
                 | ProtocolResponse::MotionCommandChanged(_)
                 | ProtocolResponse::TelemetryConfigChanged(_)
+                | ProtocolResponse::Collision(_)
                 | ProtocolResponse::Warning(_)
                 | ProtocolResponse::Error(_)
         )
@@ -767,6 +1008,30 @@ mod telemetry_tests {
                     position_world: [0.0; 3],
                 })
                 .into(),
+            collision: CollisionTelemetry {
+                environment_id: EnvironmentId::FlatGroundV1,
+                total_environment_contacts: 4,
+                foot_contacts: 4,
+                non_foot_contacts: 0,
+                torso_contacts: 0,
+                head_contacts: 0,
+                limb_contacts: 0,
+                max_normal_force: 30.0,
+                total_normal_force: 120.0,
+                strongest_contact: Some(StrongestContact {
+                    category: CollisionCategory::Feet,
+                    body_name: "FL_calf".into(),
+                    geom_name: "FL".into(),
+                    normal_force: 30.0,
+                    position_world: [0.0; 3],
+                }),
+                is_fallen: false,
+                fall_reason: FallReason::None,
+                is_out_of_bounds: false,
+                root_height_above_floor: 0.27,
+                roll: 0.0,
+                pitch: 0.0,
+            },
             command: MotionCommandStatus {
                 sequence: 0,
                 mode: MotionCommandMode::Stand,
@@ -833,5 +1098,56 @@ mod telemetry_tests {
         assert!(sequence_is_newer(0, u32::MAX));
         assert!(!sequence_is_newer(10, 10));
         assert!(!sequence_is_newer(9, 10));
+    }
+
+    #[test]
+    fn environment_id_and_metadata_are_strict() {
+        assert_eq!(
+            serde_json::from_str::<EnvironmentId>("\"flat-ground-v1\"").unwrap(),
+            EnvironmentId::FlatGroundV1
+        );
+        assert!(serde_json::from_str::<EnvironmentId>("\"other\"").is_err());
+        let metadata = EnvironmentMetadata {
+            id: EnvironmentId::FlatGroundV1,
+            display_name: "纯平地演示场景".into(),
+            floor_height: 0.0,
+            half_extent: 10.0,
+            demo_boundary_half_extent: 8.0,
+            spawn_position: [0.0, 0.27, 0.0],
+            spawn_orientation: [0.0, 0.0, 0.0, 1.0],
+            friction: [0.9, 0.1, 0.01],
+            solref: [0.02, 1.0],
+            solimp: [0.9, 0.95, 0.001],
+        };
+        assert!(metadata.validate().is_ok());
+    }
+
+    #[test]
+    fn collision_validation_rejects_inconsistent_and_nonfinite_values() {
+        let mut collision = telemetry().collision;
+        assert!(collision.validate().is_ok());
+        collision.non_foot_contacts = 1;
+        assert!(collision.validate().is_err());
+        collision = telemetry().collision;
+        collision.max_normal_force = f64::NAN;
+        assert!(collision.validate().is_err());
+        collision = telemetry().collision;
+        collision.strongest_contact.as_mut().unwrap().normal_force = -1.0;
+        assert!(collision.validate().is_err());
+    }
+
+    #[test]
+    fn collision_event_is_strict_and_bounded() {
+        let event = CollisionEvent {
+            kind: CollisionEventKind::ImpactDetected,
+            simulation_time: 1.0,
+            category: CollisionCategory::Torso,
+            body_name: "base".into(),
+            geom_name: "base_torso_collision_0".into(),
+            normal_force: 200.0,
+            position_world: [0.0, 0.0, 0.0],
+        };
+        assert!(event.validate().is_ok());
+        assert!(serde_json::to_vec(&event).unwrap().len() < MAX_LINE_BYTES);
     }
 }

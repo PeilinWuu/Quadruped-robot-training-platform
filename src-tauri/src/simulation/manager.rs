@@ -2,9 +2,10 @@ use super::{
     error::SimulationError,
     process::{self, JobObject},
     protocol::{
-        parse_response_line, sequence_is_newer, ModelLoadedPayload, MotionCommand,
-        MotionCommandStatus, ProtocolCommand, ProtocolResponse, RobotPose, RobotTelemetry,
-        SimulationEvent, SimulationState, TelemetryConfig, MAX_LINE_BYTES,
+        parse_response_line, sequence_is_newer, CollisionEvent, CollisionTelemetry, EnvironmentId,
+        EnvironmentMetadata, ModelLoadedPayload, MotionCommand, MotionCommandStatus,
+        ProtocolCommand, ProtocolResponse, RobotPose, RobotTelemetry, SimulationEvent,
+        SimulationState, TelemetryConfig, MAX_LINE_BYTES,
     },
 };
 use serde::Serialize;
@@ -89,6 +90,7 @@ struct ManagerInner {
     model: Option<ModelLoadedPayload>,
     latest_pose: Option<RobotPose>,
     latest_telemetry: Option<RobotTelemetry>,
+    latest_collision_event: Option<CollisionEvent>,
     latest_motion_command: Option<MotionCommandStatus>,
     telemetry_config: TelemetryConfig,
     speed: f64,
@@ -128,6 +130,7 @@ impl SimulationManager {
                     model: None,
                     latest_pose: None,
                     latest_telemetry: None,
+                    latest_collision_event: None,
                     latest_motion_command: None,
                     telemetry_config: TelemetryConfig { rate_hz: 50 },
                     speed: 1.0,
@@ -183,6 +186,7 @@ impl SimulationManager {
             inner.model = None;
             inner.latest_pose = None;
             inner.latest_telemetry = None;
+            inner.latest_collision_event = None;
             inner.latest_motion_command = None;
             inner.telemetry_config = TelemetryConfig { rate_hz: 50 };
             inner.error = None;
@@ -300,17 +304,48 @@ impl SimulationManager {
         }
     }
 
+    #[cfg(test)]
     pub fn load_model(&self, model_id: &str) -> Result<ModelLoadedPayload, SimulationError> {
+        self.load_model_in_environment(model_id, EnvironmentId::FlatGroundV1)
+    }
+    pub fn load_model_in_environment(
+        &self,
+        model_id: &str,
+        environment_id: EnvironmentId,
+    ) -> Result<ModelLoadedPayload, SimulationError> {
         self.require_ready()?;
         match self.request(
             ProtocolCommand::LoadModel {
                 model_id: model_id.to_owned(),
+                environment_id,
             },
             COMMAND_TIMEOUT,
         )? {
             ProtocolResponse::ModelLoaded(value) => Ok(value),
             other => response_error(other),
         }
+    }
+    pub fn current_environment(&self) -> Option<EnvironmentMetadata> {
+        self.core
+            .inner
+            .lock()
+            .ok()
+            .and_then(|inner| inner.model.as_ref().map(|model| model.environment.clone()))
+    }
+    pub fn latest_collision(&self) -> Option<CollisionTelemetry> {
+        self.core.inner.lock().ok().and_then(|inner| {
+            inner
+                .latest_telemetry
+                .as_ref()
+                .map(|value| value.collision.clone())
+        })
+    }
+    pub fn latest_collision_event(&self) -> Option<CollisionEvent> {
+        self.core
+            .inner
+            .lock()
+            .ok()
+            .and_then(|inner| inner.latest_collision_event.clone())
     }
     pub fn run_start(&self) -> Result<SimulationState, SimulationError> {
         self.state_command(ProtocolCommand::Start)
@@ -485,6 +520,7 @@ impl SimulationManager {
         inner.model = None;
         inner.latest_pose = None;
         inner.latest_telemetry = None;
+        inner.latest_collision_event = None;
         inner.latest_motion_command = None;
         inner.telemetry_config = TelemetryConfig { rate_hz: 50 };
         inner.speed = 1.0;
@@ -683,6 +719,12 @@ pub fn resolve_sidecar_resources(
             "resources",
             "simulation",
             "models",
+            "unitree-go2-flat-ground-v1.xml",
+        ],
+        &[
+            "resources",
+            "simulation",
+            "models",
             "unitree-go2-menagerie",
             "upstream",
             "go2.xml",
@@ -808,6 +850,7 @@ fn handle_message(
                 inner.simulation_state = SimulationState::Loaded;
                 inner.latest_pose = None;
                 inner.latest_telemetry = None;
+                inner.latest_collision_event = None;
                 inner.latest_motion_command = None;
                 event = Some(SimulationEvent::ModelLoaded(model.clone()));
             }
@@ -821,6 +864,7 @@ fn handle_message(
                 {
                     inner.latest_pose = None;
                     inner.latest_telemetry = None;
+                    inner.latest_collision_event = None;
                 }
                 if let Some(speed) = state.speed {
                     inner.speed = speed;
@@ -871,6 +915,10 @@ fn handle_message(
             ProtocolResponse::TelemetryConfigChanged(config) => {
                 inner.telemetry_config = config.clone();
                 event = Some(SimulationEvent::TelemetryConfigChanged(config.clone()));
+            }
+            ProtocolResponse::Collision(collision) => {
+                inner.latest_collision_event = Some(collision.clone());
+                event = Some(SimulationEvent::Collision(collision.clone()));
             }
             ProtocolResponse::Warning(warning) => {
                 event = Some(SimulationEvent::Warning(warning.clone()))

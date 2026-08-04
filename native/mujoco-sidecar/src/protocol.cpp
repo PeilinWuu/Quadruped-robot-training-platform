@@ -65,11 +65,12 @@ ProtocolResult engine_result(const Json& request_id, const char* success_type, E
 ProtocolHandler::ProtocolHandler(std::string resource_root, EventSink event_sink)
     : simulation_(std::make_unique<SimulationEngine>(std::move(resource_root),
           [sink = std::move(event_sink)](const EventKind kind, Json payload) {
-            const char* type = "telemetry";
+            std::string type = "telemetry";
             if (kind == EventKind::pose) type = "pose";
             else if (kind == EventKind::motion_command) type = "motion_command_changed";
             else if (kind == EventKind::telemetry_config) type = "telemetry_config_changed";
-            return sink(type, envelope(nullptr, type, std::move(payload)).dump());
+            else if (kind == EventKind::collision) type = payload.value("kind", "collision_event");
+            return sink(type, envelope(nullptr, type.c_str(), std::move(payload)).dump());
           })) {}
 ProtocolHandler::ProtocolHandler(std::string resource_root, LegacyEventSink event_sink)
     : ProtocolHandler(std::move(resource_root),
@@ -122,8 +123,9 @@ ProtocolResult ProtocolHandler::process_line(const std::string& line) {
       return {envelope(request_id, "state_changed", Json{{"state", "stopping"}}).dump(), true};
     }
     if (type == "load_model") {
-      if (payload.size() != 1 || !payload.contains("modelId") || !payload["modelId"].is_string()) return error_result(request_id, "INVALID_PAYLOAD", "The command payload is invalid.");
-      return engine_result(request_id, "model_loaded", simulation_->load_model(payload["modelId"].get<std::string>()));
+      if ((payload.size() != 1 && payload.size() != 2) || !payload.contains("modelId") || !payload["modelId"].is_string() ||
+          (payload.contains("environmentId") && !payload["environmentId"].is_string())) return error_result(request_id, "INVALID_PAYLOAD", "The command payload is invalid.");
+      return engine_result(request_id, "model_loaded", simulation_->load_model(payload["modelId"].get<std::string>(), payload.value("environmentId", "flat-ground-v1")));
     }
     if (type == "start" && payload.empty()) return engine_result(request_id, "state_changed", simulation_->start());
     if (type == "pause" && payload.empty()) return engine_result(request_id, "state_changed", simulation_->pause());

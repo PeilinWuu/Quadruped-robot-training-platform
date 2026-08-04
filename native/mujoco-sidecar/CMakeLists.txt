@@ -58,6 +58,7 @@ else()
 endif()
 
 if(BUILD_TESTING)
+  target_compile_definitions(sidecar_protocol PUBLIC SIDECAR_TESTING=1)
   add_executable(sidecar-protocol-tests tests/protocol_tests.cpp)
   target_link_libraries(sidecar-protocol-tests PRIVATE sidecar_protocol)
   target_include_directories(sidecar-protocol-tests

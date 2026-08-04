@@ -29,6 +29,7 @@ class StdoutWriter {
   void response(std::string line) { std::lock_guard lock(mutex_); responses_.push_back(std::move(line)); condition_.notify_one(); }
   bool pose(std::string line) { std::lock_guard lock(mutex_); const bool dropped = latest_pose_.has_value(); latest_pose_ = std::move(line); condition_.notify_one(); return dropped; }
   bool telemetry(std::string line) { std::lock_guard lock(mutex_); const bool dropped = latest_telemetry_.has_value(); latest_telemetry_ = std::move(line); condition_.notify_one(); return dropped; }
+  bool collision(std::string line) { std::lock_guard lock(mutex_); const bool dropped = collisions_.size() >= 64U; if (dropped) collisions_.pop_front(); collisions_.push_back(std::move(line)); condition_.notify_one(); return dropped; }
   void stop() {
     { std::lock_guard lock(mutex_); stopping_ = true; }
     condition_.notify_one();
@@ -38,16 +39,18 @@ class StdoutWriter {
   void run() {
     std::unique_lock lock(mutex_);
     for (;;) {
-      condition_.wait(lock, [this] { return stopping_ || !responses_.empty() || latest_pose_.has_value() || latest_telemetry_.has_value(); });
-      if (stopping_ && responses_.empty() && !latest_pose_ && !latest_telemetry_) break;
+      condition_.wait(lock, [this] { return stopping_ || !responses_.empty() || !collisions_.empty() || latest_pose_.has_value() || latest_telemetry_.has_value(); });
+      if (stopping_ && responses_.empty() && collisions_.empty() && !latest_pose_ && !latest_telemetry_) break;
       std::string line;
       if (!responses_.empty()) { line = std::move(responses_.front()); responses_.pop_front(); }
+      else if (!collisions_.empty()) { line = std::move(collisions_.front()); collisions_.pop_front(); }
       else if (latest_pose_) { line = std::move(*latest_pose_); latest_pose_.reset(); }
       else { line = std::move(*latest_telemetry_); latest_telemetry_.reset(); }
       lock.unlock(); std::cout << line << '\n' << std::flush; lock.lock();
     }
   }
   std::mutex mutex_; std::condition_variable condition_; std::deque<std::string> responses_;
+  std::deque<std::string> collisions_;
   std::optional<std::string> latest_pose_; std::optional<std::string> latest_telemetry_;
   bool stopping_{false}; std::thread thread_;
 };
@@ -64,6 +67,7 @@ int main(int argc, char** argv) {
   sidecar::ProtocolHandler handler(root.string(), [&writer](const std::string_view type, std::string event) {
     if (type == "pose") return writer.pose(std::move(event));
     if (type == "telemetry") return writer.telemetry(std::move(event));
+    if (type == "collision") return writer.collision(std::move(event));
     writer.response(std::move(event));
     return false;
   });

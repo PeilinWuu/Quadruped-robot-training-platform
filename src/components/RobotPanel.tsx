@@ -8,10 +8,12 @@ const vector = (value: [number, number, number]) => value.map(number).join(', ')
 
 export function RobotPanel() {
   const simulation = useAppStore((state) => state.simulation)
-  return <RobotPanelContent simulation={simulation}/>
+  const reset = useAppStore((state) => state.resetSimulation)
+  const clearEvent = useAppStore((state) => state.clearLatestCollisionEvent)
+  return <RobotPanelContent simulation={simulation} onReset={() => void reset()} onClearEvent={clearEvent}/>
 }
 
-export function RobotPanelContent({ simulation }: { simulation: SimulationUiState }) {
+export function RobotPanelContent({ simulation, onReset, onClearEvent }: { simulation: SimulationUiState; onReset?: () => void; onClearEvent?: () => void }) {
   const pose = simulation.latestPose
   const telemetry = simulation.latestTelemetry
   const connected = simulation.processState === 'ready'
@@ -19,6 +21,8 @@ export function RobotPanelContent({ simulation }: { simulation: SimulationUiStat
   const updatedAt = telemetry?.wallTime ?? pose?.updatedAt
   const updated = updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '暂未接入'
   const command = telemetry?.command ?? simulation.latestMotionCommand
+  const collision = telemetry?.collision
+  const collisionEvent = simulation.latestCollisionEvent
   return <Panel title="机器人状态" extra={<span className={connected ? 'online' : 'offline'}><i/>{connected ? ' SIDECAR READY' : ' OFFLINE'}</span>}>
     <div className="robot-live-summary">
       <div className="robot-model"><div className="model-body"><Bot size={38}/></div><span>{simulation.model?.modelId ?? '暂未加载模型'}</span></div>
@@ -44,6 +48,24 @@ export function RobotPanelContent({ simulation }: { simulation: SimulationUiStat
       <div className="robot-telemetry-table"><div className="head"><b>Joint</b><b>Pos</b><b>Vel</b><b>Torque</b><b>Force</b><b>Target</b><b>Limit</b></div>{telemetry?.joints.map((joint) => <div key={joint.name}><i>{joint.name}</i><span>{number(joint.position)}</span><span>{number(joint.velocity)}</span><span>{number(joint.actuatorTorque)}</span><span>{number(joint.actuatorForce)}</span><span>{number(joint.controlTarget)}</span><span>{joint.limited ? `${number(joint.lowerLimit!)}…${number(joint.upperLimit!)}` : 'unlimited'}</span></div>) ?? pose?.joints.map((joint) => <div key={joint.name}><i>{joint.name}</i><span>{number(joint.position)}</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span></div>) ?? <p>暂未接入</p>}</div>
     </details>
     <details className="robot-telemetry-details" open><summary>四足接触 · 世界 Y-up</summary><div className="robot-feet-grid">{telemetry?.feet.map((foot) => <span key={foot.name}><b>{foot.name} · {foot.inContact ? '接触' : '未接触'}</b><i>{foot.contactCount} 点 · {number(foot.normalForce)} N</i><i>Force {vector(foot.forceWorld)}</i></span>) ?? <p>暂未接入</p>}</div></details>
+    <details className="robot-telemetry-details flat-ground-collision" open><summary>平地碰撞演示</summary>
+      {collision ? <>
+        <dl className="robot-performance">
+          <div><dt>环境</dt><dd>{simulation.model?.environment.displayName ?? collision.environmentId}</dd></div>
+          <div><dt>地面 / 摩擦</dt><dd>{simulation.model ? `${simulation.model.environment.halfExtent * 2}m · ${simulation.model.environment.friction.join(' / ')}` : '—'}</dd></div>
+          <div><dt>总接触 / 足端</dt><dd>{collision.totalEnvironmentContacts} / {collision.footContacts}</dd></div>
+          <div><dt>非足端 / 躯干</dt><dd>{collision.nonFootContacts} / {collision.torsoContacts}</dd></div>
+          <div><dt>最大 / 总法向力</dt><dd>{number(collision.maxNormalForce)} / {number(collision.totalNormalForce)} N</dd></div>
+          <div><dt>根高度</dt><dd>{number(collision.rootHeightAboveFloor)} m</dd></div>
+          <div><dt>Roll / Pitch</dt><dd>{number(collision.roll)} / {number(collision.pitch)} rad</dd></div>
+          <div><dt>跌倒</dt><dd className={collision.isFallen ? 'collision-alert' : ''}>{collision.isFallen ? `是 · ${collision.fallReason}` : '否'}</dd></div>
+          <div><dt>越界</dt><dd className={collision.isOutOfBounds ? 'collision-alert' : ''}>{collision.isOutOfBounds ? '是' : '否'}</dd></div>
+          <div><dt>最近事件</dt><dd>{collisionEvent ? `${collisionEvent.kind} · ${number(collisionEvent.normalForce)} N` : '无'}</dd></div>
+        </dl>
+        <div className="collision-demo-actions"><button type="button" disabled={!onReset || simulation.busy || !simulation.model} onClick={onReset}>重置机器人</button><button type="button" disabled={!onClearEvent || !collisionEvent} onClick={onClearEvent}>清除最近事件</button></div>
+      </> : <p>等待 MuJoCo 碰撞遥测</p>}
+      <p className="collision-demo-warning">当前为虚拟碰撞演示，不代表实体 Go2 安全评估。</p>
+    </details>
     <details className="robot-telemetry-details"><summary>仿真性能（非硬实时保证）</summary>{telemetry ? <dl className="robot-performance"><div><dt>Physics / Control</dt><dd>{number(telemetry.performance.physicsFrequencyHz)} / {number(telemetry.performance.controlFrequencyHz)} Hz</dd></div><div><dt>Pose / Telemetry</dt><dd>{number(telemetry.performance.posePublishFrequencyHz)} / {number(telemetry.performance.telemetryPublishFrequencyHz)} Hz</dd></div><div><dt>Real-time factor</dt><dd>{number(telemetry.performance.realTimeFactor)}</dd></div><div><dt>Physics mean/max</dt><dd>{number(telemetry.performance.physicsStepMeanMs)} / {number(telemetry.performance.physicsStepMaxMs)} ms</dd></div><div><dt>Control mean/max</dt><dd>{number(telemetry.performance.controlStepMeanMs)} / {number(telemetry.performance.controlStepMaxMs)} ms</dd></div><div><dt>Dropped pose/telemetry</dt><dd>{telemetry.performance.droppedPoseEvents} / {telemetry.performance.droppedTelemetryEvents}</dd></div></dl> : <p>暂未接入</p>}</details>
     <section className="robot-unavailable"><h4><Gauge size={13}/>虚拟运动命令</h4><p>{command ? `${command.mode} · [${number(command.forwardVelocity)}, ${number(command.lateralVelocity)}, ${number(command.yawRate)}] · ${command.timedOut ? '已超时' : '有效'} · ${command.appliedByController ? '控制器已执行' : '仅接收，未执行'} · ${command.controllerAvailability}` : '暂未发送'}</p></section>
     <section className="robot-unavailable"><h4><Cpu size={13}/>尚未接入的实体遥测</h4><p>电池、CPU 温度、网络信号、真实步态、传感器状态、Actuator telemetry、实体 Go2 在线状态、相机、LiDAR、真机故障码：<b>暂未接入</b></p></section>

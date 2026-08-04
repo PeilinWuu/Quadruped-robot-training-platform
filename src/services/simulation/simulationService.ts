@@ -13,6 +13,9 @@ import type {
   SimulationModelDescription,
   SimulationModelId,
   TelemetryConfig,
+  CollisionEvent,
+  CollisionTelemetry,
+  EnvironmentMetadata,
 } from './types'
 import { DEFAULT_SIMULATION_MODEL_ID, SIMULATION_MODELS } from './types'
 import { RobotTelemetryBuffer, type TelemetryListener } from './RobotTelemetryBuffer'
@@ -33,6 +36,7 @@ export function getSimulationAdapter(): Promise<SimulationAdapter> {
 
 type AdapterLoader = () => Promise<SimulationAdapter>
 type PoseListener = (pose: RobotPose) => void
+type CollisionListener = (event: CollisionEvent) => void
 
 export class ManagedSimulationService {
   private readonly loadAdapter: AdapterLoader
@@ -44,6 +48,7 @@ export class ManagedSimulationService {
   private selectedModelId: SimulationModelId = DEFAULT_SIMULATION_MODEL_ID
   private readonly poseListeners = new Set<PoseListener>()
   private readonly eventListeners = new Set<SimulationListener>()
+  private readonly collisionListeners = new Set<CollisionListener>()
   private queue: Promise<void> = Promise.resolve()
 
   constructor(loadAdapter: AdapterLoader = getSimulationAdapter) {
@@ -54,6 +59,10 @@ export class ManagedSimulationService {
   getBufferedPose(): RobotPose | null { return this.latestPose }
   getBufferedTelemetry(): RobotTelemetry | null { return this.telemetry.getLatest() }
   listAvailableModels(): readonly SimulationModelDescription[] { return SIMULATION_MODELS }
+  listAvailableEnvironments(): Promise<EnvironmentMetadata[]> { return this.withAdapter((adapter) => adapter.listAvailableEnvironments()) }
+  getCurrentEnvironment(): Promise<EnvironmentMetadata | null> { return this.withAdapter((adapter) => adapter.getCurrentEnvironment()) }
+  getLatestCollisionState(): Promise<CollisionTelemetry | null> { return this.withAdapter((adapter) => adapter.getLatestCollisionState()) }
+  getLatestCollisionEvent(): Promise<CollisionEvent | null> { return this.withAdapter((adapter) => adapter.getLatestCollisionEvent()) }
   getSelectedModel(): SimulationModelDescription {
     return SIMULATION_MODELS.find((model) => model.id === this.selectedModelId)!
   }
@@ -68,14 +77,14 @@ export class ManagedSimulationService {
       this.telemetry.clear()
       if (status.state !== 'ready') return status
       if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
-      await adapter.loadModel(modelId)
+      await adapter.loadModel(modelId, 'flat-ground-v1')
       return adapter.getStatus()
     })
   }
   loadSelectedModel(): Promise<ModelMetadata> {
     return this.withAdapter(async (adapter) => {
       this.latestPose = null
-      return adapter.loadModel(this.selectedModelId)
+      return adapter.loadModel(this.selectedModelId, 'flat-ground-v1')
     })
   }
   onPose(listener: PoseListener): () => void {
@@ -85,6 +94,10 @@ export class ManagedSimulationService {
   onEvent(listener: SimulationListener): () => void {
     this.eventListeners.add(listener)
     return () => this.eventListeners.delete(listener)
+  }
+  subscribeCollisionEvents(listener: CollisionListener): () => void {
+    this.collisionListeners.add(listener)
+    return () => this.collisionListeners.delete(listener)
   }
   subscribeTelemetry(listener: TelemetryListener): () => void {
     return this.telemetry.subscribe(listener)
@@ -117,7 +130,7 @@ export class ManagedSimulationService {
       if (status.state !== 'ready') status = await adapter.startSidecar()
       if (status.model?.modelId !== this.selectedModelId) {
         if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
-        await adapter.loadModel(this.selectedModelId)
+        await adapter.loadModel(this.selectedModelId, 'flat-ground-v1')
         status = await adapter.getStatus()
       }
       await this.ensureSubscription(adapter)
@@ -236,6 +249,11 @@ export class ManagedSimulationService {
       }
     }
     if (event.type === 'model_loaded') this.telemetry.clear()
+    if (event.type === 'collision') {
+      for (const listener of this.collisionListeners) {
+        try { listener(event.payload) } catch { /* Collision listeners are isolated. */ }
+      }
+    }
     for (const listener of this.eventListeners) {
       try { listener(event) } catch { /* UI listeners cannot interrupt delivery. */ }
     }
@@ -246,6 +264,7 @@ export class ManagedSimulationService {
     this.subscription = null
     await subscription?.unsubscribe()
     this.telemetry.clear()
+    this.collisionListeners.clear()
   }
 }
 

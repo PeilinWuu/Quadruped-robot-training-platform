@@ -23,6 +23,7 @@ import { DEFAULT_ROBOT_CALIBRATION } from './robot/RobotOverlayRuntime'
 import type { RobotOverlayStatus } from './robot/RobotOverlayRuntime'
 import type { Go2VisualMode } from './robot/go2VisualManifest'
 import { useAppStore } from '../../store/useAppStore'
+import type { EnvironmentOverlayStatus } from './environment/environmentTypes'
 
 const DEV_TEST_SCENE_SOURCE: SceneSource | null = import.meta.env.DEV
   ? {
@@ -69,6 +70,10 @@ const INITIAL_ROBOT_STATE: RobotPreviewState = {
   calibration: DEFAULT_ROBOT_CALIBRATION,
   yawDegrees: 0,
   overlay: null,
+}
+const INITIAL_ENVIRONMENT_STATUS: EnvironmentOverlayStatus = {
+  environmentId: 'flat-ground-v1', visible: true, gridVisible: true,
+  entityCount: 0, materialCount: 0, halfExtent: 10, floorHeight: 0,
 }
 
 export function sourceFromRecord(scene: SceneRecord): SceneSource {
@@ -129,6 +134,8 @@ export function useGaussianViewer() {
   const robotVisibleRef = useRef(true)
   const robotCalibrationRef = useRef(DEFAULT_ROBOT_CALIBRATION)
   const robotVisualModeRef = useRef<Go2VisualMode>('official-mesh')
+  const environmentVisibleRef = useRef(true)
+  const environmentGridRef = useRef(true)
   const [viewerState, setViewerState] = useState<GaussianViewerState>(INITIAL_STATE)
   const [scenes, setScenes] = useState<SceneRecord[]>([])
   const [currentScene, setCurrentScene] = useState<SceneRecord | null>(null)
@@ -136,6 +143,7 @@ export function useGaussianViewer() {
   const [orientationBusy, setOrientationBusy] = useState(false)
   const [importState, setImportState] = useState<ImportUiState>(INITIAL_IMPORT_STATE)
   const [robotPreview, setRobotPreview] = useState<RobotPreviewState>(INITIAL_ROBOT_STATE)
+  const [environmentPreview, setEnvironmentPreview] = useState(INITIAL_ENVIRONMENT_STATUS)
   const desktop = sceneImportSupported()
   const robotDesktop = simulationDesktopSupported()
 
@@ -273,6 +281,17 @@ export function useGaussianViewer() {
     runtimeRef.current?.reloadRobotVisuals?.()
     setRobotPreview((current) => ({ ...current, error: null }))
   }, [])
+  const toggleEnvironmentVisible = useCallback(() => {
+    environmentVisibleRef.current = !environmentVisibleRef.current
+    runtimeRef.current?.setEnvironmentVisible?.(environmentVisibleRef.current)
+    setEnvironmentPreview((current) => ({ ...current, visible: environmentVisibleRef.current }))
+  }, [])
+  const toggleEnvironmentGrid = useCallback(() => {
+    environmentGridRef.current = !environmentGridRef.current
+    runtimeRef.current?.setEnvironmentGridVisible?.(environmentGridRef.current)
+    setEnvironmentPreview((current) => ({ ...current, gridVisible: environmentGridRef.current }))
+  }, [])
+  const focusEnvironment = useCallback(() => { runtimeRef.current?.focusEnvironment?.() }, [])
 
   const persistOrientation = useCallback(async (nextOrientation: SceneOrientation) => {
     const scene = currentScene
@@ -443,10 +462,14 @@ export function useGaussianViewer() {
     let previous = ''
     const timer = globalThis.setInterval(() => {
       const overlay = runtimeRef.current?.getRobotOverlayStatus?.() ?? null
-      const serialized = JSON.stringify(overlay)
+      const environment = runtimeRef.current?.getEnvironmentOverlayStatus?.() ?? INITIAL_ENVIRONMENT_STATUS
+      const serialized = JSON.stringify([overlay, environment])
       if (serialized === previous) return
       previous = serialized
+      environmentVisibleRef.current = environment.visible
+      environmentGridRef.current = environment.gridVisible
       setRobotPreview((current) => ({ ...current, overlay, error: overlay?.visual?.error ?? current.error }))
+      setEnvironmentPreview(environment)
       useAppStore.setState((state) => ({ simulation: {
         ...state.simulation,
         visualMode: overlay?.modelId === 'minimal-quadruped-v1' ? 'primitive-only' : overlay?.visual?.mode ?? state.simulation.visualMode,
@@ -553,6 +576,7 @@ export function useGaussianViewer() {
         runtime.setRobotCalibration?.(robotCalibrationRef.current)
         runtime.setRobotVisible?.(robotVisibleRef.current)
         runtime.setRobotVisualMode?.(robotVisualModeRef.current)
+        runtime.setEnvironmentGridVisible?.(environmentGridRef.current)
         const bufferedPose = simulationService.getBufferedPose()
         if (bufferedPose) runtime.updateRobotPose?.(bufferedPose, true)
         if (appliedSize.width >= 0 && appliedSize.height >= 0) {
@@ -612,5 +636,9 @@ export function useGaussianViewer() {
     resetRobotCalibration,
     setRobotVisualMode,
     reloadRobotVisuals,
+    environmentPreview,
+    toggleEnvironmentVisible,
+    toggleEnvironmentGrid,
+    focusEnvironment,
   }
 }

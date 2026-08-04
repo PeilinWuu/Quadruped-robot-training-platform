@@ -1,4 +1,5 @@
 import type { SimulationAdapter, SimulationStatus } from './types'
+import { FLAT_GROUND_ENVIRONMENT } from './types'
 
 const MESSAGE = '机器人预览仅桌面版可用'
 const STATUS: SimulationStatus = {
@@ -17,6 +18,10 @@ export const browserSimulationAdapter: SimulationAdapter = {
   ping: unavailable,
   stopSidecar: unavailable,
   loadModel: unavailable,
+  listAvailableEnvironments: async () => [{ ...FLAT_GROUND_ENVIRONMENT }],
+  getCurrentEnvironment: async () => null,
+  getLatestCollisionState: async () => null,
+  getLatestCollisionEvent: async () => null,
   startSimulation: unavailable,
   pauseSimulation: unavailable,
   stepSimulation: unavailable,

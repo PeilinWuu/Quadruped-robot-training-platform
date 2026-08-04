@@ -1,0 +1,14 @@
+<mujoco model="unitree go2 flat ground v1">
+  <include file="unitree-go2-menagerie/upstream/go2.xml"/>
+  <compiler meshdir="unitree-go2-menagerie/upstream/assets"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+  </visual>
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="flat-ground-v1-floor" pos="0 0 0" size="10 10 0.05" type="plane"
+      friction="0.9 0.1 0.01" condim="3" solref="0.02 1" solimp="0.9 0.95 0.001"
+      rgba="0.16 0.20 0.23 1"/>
+  </worldbody>
+</mujoco>

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '../store/useAppStore'
 import { RobotPanelContent } from './RobotPanel'
+import { FLAT_GROUND_ENVIRONMENT } from '../services/simulation/types'
 
 describe('RobotPanel real simulation fields', () => {
   beforeEach(() => {
@@ -9,7 +10,7 @@ describe('RobotPanel real simulation fields', () => {
       ...state.simulation,
       processState: 'ready', simulationState: 'paused', speed: 2,
       selectedModelId: 'minimal-quadruped-v1',
-      model: { modelId: 'minimal-quadruped-v1', timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 14 },
+      model: { modelId: 'minimal-quadruped-v1', environmentId: 'flat-ground-v1', environment: FLAT_GROUND_ENVIRONMENT, timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 14 },
       latestPose: {
         sequence: 42, simulationTime: 1.25, updatedAt: 1000,
         rootPosition: [1, 2, 3], rootOrientation: [0, 0, 0, 1],

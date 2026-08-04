@@ -4,8 +4,9 @@ import type {
   ModelMetadata, RobotPose, SimulationAdapter, SimulationListener,
   SimulationState, SimulationStatus, SimulationSubscription,
 } from '../types'
+import { FLAT_GROUND_ENVIRONMENT } from '../types'
 
-const MODEL: ModelMetadata = { modelId: 'unitree-go2-menagerie', timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 18 }
+const MODEL: ModelMetadata = { modelId: 'unitree-go2-menagerie', environmentId: 'flat-ground-v1', environment: FLAT_GROUND_ENVIRONMENT, timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 18 }
 const JOINTS = ['FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint', 'FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint', 'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint', 'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint']
 const POSE: RobotPose = {
   sequence: 1, simulationTime: .002, wallTime: 100,
@@ -40,6 +41,10 @@ function fakeAdapter(initial?: Partial<SimulationStatus>) {
     clearMotionCommand: vi.fn(async () => ({ sequence: 0, mode: 'stand' as const, forwardVelocity: 0, lateralVelocity: 0, yawRate: 0, bodyHeight: .3, validForMs: 500, ageMs: 0, timedOut: false, appliedByController: true, bodyHeightApplied: false, controllerAvailability: 'stand-hold' as const })),
     setTelemetryRate: vi.fn(async (rateHz) => ({ rateHz })),
     getLatestTelemetry: vi.fn(async () => null),
+    listAvailableEnvironments: vi.fn(async () => [FLAT_GROUND_ENVIRONMENT]),
+    getCurrentEnvironment: vi.fn(async () => status.model?.environment ?? null),
+    getLatestCollisionState: vi.fn(async () => null),
+    getLatestCollisionEvent: vi.fn(async () => null),
     subscribe: vi.fn(async (nextListener) => { calls.push('subscribe'); listener = nextListener; return subscription }),
   }
   return { adapter, calls, subscription, emit: (event: Parameters<SimulationListener>[0]) => listener(event) }

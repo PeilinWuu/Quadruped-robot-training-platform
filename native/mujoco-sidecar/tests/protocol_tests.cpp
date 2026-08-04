@@ -2,6 +2,7 @@
 #include "simulation.hpp"
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -46,6 +47,8 @@ int main() {
   sidecar::SimulationEngine engine(TEST_RESOURCE_ROOT, [&](Json pose) { std::lock_guard lock(events_mutex); events.push_back(std::move(pose)); });
   expect(!engine.start().ok, "start unloaded rejected");
   expect(!engine.load_model("unknown").ok, "unknown model rejected");
+  expect(!engine.load_model("minimal-quadruped-v1", "unknown-environment").ok,
+         "unknown environment rejected");
   const auto loaded = engine.load_model("minimal-quadruped-v1");
   expect(loaded.ok, "minimal model loads");
   expect(loaded.payload["jointCount"] == 12, "12 joints");
@@ -76,6 +79,23 @@ int main() {
   const auto minimal_telemetry = engine.get_latest_telemetry();
   expect(minimal_telemetry.ok && minimal_telemetry.payload["modelId"] == "minimal-quadruped-v1", "minimal telemetry profile");
   expect(minimal_telemetry.payload["joints"].size() == 12 && minimal_telemetry.payload["feet"].size() == 4, "minimal telemetry mapping sizes");
+  expect(minimal_telemetry.payload["collision"]["environmentId"] == "flat-ground-v1",
+         "default flat environment");
+  expect(minimal_telemetry.payload["collision"]["nonFootContacts"] == 0,
+         "minimal home nonfoot clear");
+  const auto minimal_profile = engine.test_collision_profile();
+  for (const char* category : {"feet", "calves", "thighs", "hips", "torso", "head", "environment"}) {
+    expect(std::any_of(minimal_profile.begin(), minimal_profile.end(), [category](const Json& item) {
+      return item["category"] == category;
+    }), "minimal collision category mapped");
+  }
+  expect(engine.test_set_root_state({9.0, 0.0, 0.58}, {1.0, 0.0, 0.0, 0.0}),
+         "test root out of bounds");
+  expect(engine.get_latest_telemetry().payload["collision"]["isOutOfBounds"],
+         "out of bounds detected");
+  engine.reset();
+  expect(!engine.get_latest_telemetry().payload["collision"]["isOutOfBounds"],
+         "reset returns in bounds");
   expect(finite_json_numbers(minimal_telemetry.payload), "minimal telemetry finite");
   expect(minimal_telemetry.payload.dump().size() < sidecar::kMaxLineBytes, "telemetry under line limit");
   expect(engine.set_telemetry_rate(10).ok && engine.set_telemetry_rate(100).ok, "telemetry rate boundaries");
@@ -134,6 +154,21 @@ int main() {
   const auto go2_telemetry = engine.get_latest_telemetry().payload;
   expect(go2_telemetry["modelId"] == "unitree-go2-menagerie" && go2_telemetry["joints"].size() == 12, "Go2 telemetry profile");
   expect(go2_telemetry["feet"][0]["name"] == "FL" && go2_telemetry["feet"][1]["name"] == "FR" && go2_telemetry["feet"][2]["name"] == "RL" && go2_telemetry["feet"][3]["name"] == "RR", "Go2 fixed foot mapping");
+  expect(go2_telemetry["collision"]["environmentId"] == "flat-ground-v1" &&
+         go2_telemetry["collision"]["nonFootContacts"] == 0, "Go2 home collision state");
+  const auto go2_profile = engine.test_collision_profile();
+  for (const char* category : {"feet", "calves", "thighs", "hips", "torso", "head", "environment"}) {
+    expect(std::any_of(go2_profile.begin(), go2_profile.end(), [category](const Json& item) {
+      return item["category"] == category;
+    }), "Go2 collision category mapped");
+  }
+  expect(engine.test_set_root_state({0.0, 0.0, 0.10}, {0.7071067811865476, 0.7071067811865476, 0.0, 0.0}),
+         "test fallen root state");
+  engine.step(101);
+  const auto fallen = engine.get_latest_telemetry().payload["collision"];
+  expect(fallen["isFallen"] && fallen["fallReason"] != "none", "debounced fall detected");
+  engine.reset();
+  expect(!engine.get_latest_telemetry().payload["collision"]["isFallen"], "reset clears fall");
   expect(finite_json_numbers(go2_telemetry) && go2_telemetry.dump().size() < sidecar::kMaxLineBytes, "Go2 telemetry finite and bounded");
   for (int index = 0; index < 5; ++index) {
     const auto advanced = engine.step(1000);

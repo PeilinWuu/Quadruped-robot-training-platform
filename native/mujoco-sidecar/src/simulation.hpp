@@ -20,7 +20,25 @@ namespace sidecar {
 
 enum class SimulationState { unloaded, loaded, running, paused, stopped };
 enum class MotionMode { stand, locomotion };
-enum class EventKind { pose, telemetry, motion_command, telemetry_config };
+enum class EventKind { pose, telemetry, motion_command, telemetry_config, collision };
+
+enum class CollisionCategory { feet, calves, thighs, hips, torso, head, other_robot, environment };
+
+struct EnvironmentMetadata {
+  std::string id{"flat-ground-v1"};
+  std::string display_name{"纯平地演示场景"};
+  double floor_height{0.0};
+  double half_extent{10.0};
+  double demo_boundary_half_extent{8.0};
+  std::array<double, 3> spawn_position{};
+  std::array<double, 4> spawn_orientation{{0.0, 0.0, 0.0, 1.0}};
+  std::array<double, 3> friction{{0.9, 0.1, 0.01}};
+  std::array<double, 2> solref{{0.02, 1.0}};
+  std::array<double, 3> solimp{{0.9, 0.95, 0.001}};
+};
+
+const EnvironmentMetadata& flat_ground_environment();
+const char* collision_category_name(CollisionCategory category);
 
 struct MotionCommand {
   std::uint32_t sequence{0};
@@ -53,7 +71,8 @@ class SimulationEngine {
   SimulationEngine(const SimulationEngine&) = delete;
   SimulationEngine& operator=(const SimulationEngine&) = delete;
 
-  EngineResult load_model(const std::string& model_id);
+  EngineResult load_model(const std::string& model_id,
+                          const std::string& environment_id = "flat-ground-v1");
   EngineResult start();
   EngineResult pause();
   EngineResult step(int steps);
@@ -66,6 +85,11 @@ class SimulationEngine {
   EngineResult get_latest_telemetry();
   [[nodiscard]] SimulationState state() const;
   [[nodiscard]] nlohmann::json latest_pose() const;
+#ifdef SIDECAR_TESTING
+  [[nodiscard]] nlohmann::json test_collision_profile() const;
+  bool test_set_root_state(const std::array<double, 3>& position,
+                           const std::array<double, 4>& quaternion_wxyz);
+#endif
   void shutdown();
 
  private:
@@ -77,12 +101,15 @@ class SimulationEngine {
   EngineResult invalid_state() const;
   nlohmann::json pose_locked(bool advance_sequence);
   nlohmann::json telemetry_locked(bool advance_sequence, bool refresh_performance = true);
+  nlohmann::json collision_telemetry_locked();
   nlohmann::json motion_status_locked() const;
   nlohmann::json state_payload_locked() const;
   void clear_motion_locked();
   void reset_statistics_locked();
   void update_command_timeout_locked();
   void step_once_locked();
+  void update_collision_state_locked();
+  std::vector<nlohmann::json> take_collision_events_locked();
   void physics_loop();
   void publish(EventKind kind, nlohmann::json payload);
 
@@ -95,12 +122,16 @@ class SimulationEngine {
   ModelPtr model_;
   DataPtr data_;
   std::string model_id_;
+  std::string environment_id_{"flat-ground-v1"};
   std::vector<int> joint_ids_;
   std::vector<int> joint_qpos_addresses_;
   std::vector<int> joint_dof_addresses_;
   std::vector<int> actuator_ids_;
   std::vector<std::string> joint_names_;
   std::array<int, 4> foot_geom_ids_{{-1, -1, -1, -1}};
+  int ground_geom_id_{-1};
+  std::vector<CollisionCategory> geom_categories_;
+  std::vector<std::string> geom_profile_names_;
   int root_body_id_{-1};
   int imu_site_id_{-1};
   std::vector<double> home_joint_positions_;
@@ -112,6 +143,16 @@ class SimulationEngine {
   unsigned int control_phase_{0};
   nlohmann::json latest_pose_;
   nlohmann::json latest_telemetry_;
+  nlohmann::json latest_collision_;
+  std::vector<nlohmann::json> pending_collision_events_;
+  bool non_foot_collision_active_{false};
+  bool fallen_{false};
+  bool out_of_bounds_{false};
+  double fall_candidate_since_{-1.0};
+  double last_impact_time_{-1.0};
+  double fall_height_threshold_{0.16};
+  double fall_orientation_threshold_{0.9599310885968813};
+  double impact_threshold_{180.0};
   MotionCommand motion_command_;
   std::chrono::steady_clock::time_point motion_received_at_{};
   bool motion_timed_out_{false};

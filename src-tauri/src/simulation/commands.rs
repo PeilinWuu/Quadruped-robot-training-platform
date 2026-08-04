@@ -2,8 +2,9 @@ use super::{
     error::SimulationError,
     manager::{PingResult, SimulationManager, SimulationStatus},
     protocol::{
-        ModelLoadedPayload, MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry,
-        SimulationEvent, SimulationState, TelemetryConfig,
+        CollisionEvent, CollisionTelemetry, EnvironmentId, EnvironmentMetadata, ModelLoadedPayload,
+        MotionCommand, MotionCommandStatus, RobotPose, RobotTelemetry, SimulationEvent,
+        SimulationState, TelemetryConfig,
     },
 };
 use tauri::{ipc::Channel, AppHandle, Manager, State};
@@ -54,10 +55,57 @@ pub async fn simulation_sidecar_stop(
 #[tauri::command]
 pub async fn simulation_load_model(
     model_id: String,
+    environment_id: Option<String>,
     manager: State<'_, SimulationManager>,
 ) -> Result<ModelLoadedPayload, SimulationError> {
+    let environment = match environment_id.as_deref().unwrap_or("flat-ground-v1") {
+        "flat-ground-v1" => EnvironmentId::FlatGroundV1,
+        _ => {
+            return Err(SimulationError::new(
+                "UNKNOWN_ENVIRONMENT",
+                "The simulation environment is not allowed.",
+            ))
+        }
+    };
     let manager = manager.inner().clone();
-    run_blocking(move || manager.load_model(&model_id)).await
+    run_blocking(move || manager.load_model_in_environment(&model_id, environment)).await
+}
+
+#[tauri::command]
+pub fn simulation_list_environments() -> Vec<EnvironmentMetadata> {
+    vec![EnvironmentMetadata {
+        id: EnvironmentId::FlatGroundV1,
+        display_name: "纯平地演示场景".into(),
+        floor_height: 0.0,
+        half_extent: 10.0,
+        demo_boundary_half_extent: 8.0,
+        spawn_position: [0.0, 0.0, 0.0],
+        spawn_orientation: [0.0, 0.0, 0.0, 1.0],
+        friction: [0.9, 0.1, 0.01],
+        solref: [0.02, 1.0],
+        solimp: [0.9, 0.95, 0.001],
+    }]
+}
+
+#[tauri::command]
+pub fn simulation_current_environment(
+    manager: State<'_, SimulationManager>,
+) -> Option<EnvironmentMetadata> {
+    manager.current_environment()
+}
+
+#[tauri::command]
+pub fn simulation_latest_collision(
+    manager: State<'_, SimulationManager>,
+) -> Option<CollisionTelemetry> {
+    manager.latest_collision()
+}
+
+#[tauri::command]
+pub fn simulation_latest_collision_event(
+    manager: State<'_, SimulationManager>,
+) -> Option<CollisionEvent> {
+    manager.latest_collision_event()
 }
 #[tauri::command]
 pub async fn simulation_run_start(

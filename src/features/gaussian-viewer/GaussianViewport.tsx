@@ -40,6 +40,10 @@ export function GaussianViewport() {
     resetRobotCalibration,
     setRobotVisualMode,
     reloadRobotVisuals,
+    environmentPreview,
+    toggleEnvironmentVisible,
+    toggleEnvironmentGrid,
+    focusEnvironment,
   } = useGaussianViewer()
   const { phase, status, message } = viewerState
   const backingWidth = status ? Math.floor(status.width * status.pixelRatio) : 0
@@ -126,6 +130,15 @@ export function GaussianViewport() {
               <button type="button" onClick={toggleRobotVisible}>{robotPreview.visible ? '隐藏机器人' : '显示机器人'}</button>
               <button type="button" onClick={focusRobot}>聚焦机器人</button>
               {robotPreview.overlay?.modelId === 'unitree-go2-menagerie' ? <button type="button" onClick={reloadRobotVisuals}>重新加载网格</button> : null}
+            </div>
+            <div className="environment-preview__summary">
+              <strong>平地碰撞演示</strong>
+              <span>{environmentPreview.halfExtent * 2} × {environmentPreview.halfExtent * 2} m · Y={environmentPreview.floorHeight}</span>
+              <div className="robot-preview__actions">
+                <button type="button" onClick={toggleEnvironmentVisible}>{environmentPreview.visible ? '隐藏平地' : '显示平地'}</button>
+                <button type="button" onClick={toggleEnvironmentGrid}>{environmentPreview.gridVisible ? '隐藏网格线' : '显示网格线'}</button>
+                <button type="button" onClick={focusEnvironment}>聚焦环境</button>
+              </div>
             </div>
             <div className="robot-preview__calibration-wrap">
               <strong>内存校准</strong>
