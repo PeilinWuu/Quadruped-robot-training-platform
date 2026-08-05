@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "setup:mujoco": "node scripts/fetch-mujoco.mjs",
+    "setup:mpc": "node scripts/fetch-mpc-dependencies.mjs",
     "setup:go2": "node scripts/fetch-go2-menagerie.mjs",
     "verify:go2": "node scripts/verify-go2-menagerie.mjs",
     "build:go2-visuals": "node scripts/build-go2-visuals.mjs",

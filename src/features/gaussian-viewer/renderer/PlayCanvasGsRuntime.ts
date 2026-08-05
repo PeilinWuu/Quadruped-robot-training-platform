@@ -98,6 +98,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private cameraController: PlayCanvasCameraController | null = null
   private gsplatSystem: GSplatComponentSystem | null = null
   private robotOverlay: RobotOverlayRuntime | null = null
+  private followRobot = false
   private environmentOverlay: EnvironmentOverlayRuntime | null = null
   private objectUrl: string | null = null
   private pendingParse: Promise<SceneLoadResult> | null = null
@@ -261,6 +262,9 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   updateRobotPose(pose: RobotPose, immediate = false): boolean {
     const accepted = this.robotOverlay?.updatePose(pose, immediate) ?? false
     if (accepted) {
+      if (this.followRobot && this.cameraController) {
+        this.cameraController.followTarget(new Vec3(...pose.rootPosition))
+      }
       this.updateControlsEnabled()
       this.requestRender()
     }
@@ -304,6 +308,8 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.cameraController.reset(new Vec3(...bounds.center), bounds.radius * 1.45)
     return true
   }
+
+  setRobotFollow(enabled: boolean): void { this.followRobot = enabled }
   getEnvironmentOverlayStatus(): EnvironmentOverlayStatus | null { return this.environmentOverlay?.getStatus() ?? null }
 
   async loadScene(source: SceneSource, signal?: AbortSignal): Promise<SceneLoadResult> {

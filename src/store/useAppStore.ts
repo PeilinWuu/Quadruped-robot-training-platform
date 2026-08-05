@@ -36,6 +36,7 @@ export interface SimulationUiState {
   visualMode: Go2VisualMode | 'primitive-only'
   visualPhase: 'idle' | 'loading' | 'ready' | 'fallback'
   visualError: string | null
+  followRobot: boolean
 }
 
 export interface SimulationActionResult { ok: boolean; error?: string }
@@ -56,6 +57,7 @@ interface AppState {
   clearMotionCommand: () => Promise<SimulationActionResult>
   setTelemetryRate: (rateHz: number) => Promise<SimulationActionResult>
   clearLatestCollisionEvent: () => void
+  setFollowRobot: (enabled: boolean) => void
 }
 
 const INITIAL_SIMULATION: SimulationUiState = {
@@ -65,6 +67,7 @@ const INITIAL_SIMULATION: SimulationUiState = {
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
   latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false,
   visualMode: 'official-mesh', visualPhase: 'idle', visualError: null,
+  followRobot: true,
 }
 
 let eventCleanup: (() => void) | null = null
@@ -182,6 +185,7 @@ export const useAppStore = create<AppState>((set, get) => {
       catch (error) { return { ok: false, error: safeSimulationError(error) } }
     },
     clearLatestCollisionEvent: () => set((state) => ({ simulation: { ...state.simulation, latestCollisionEvent: null } })),
+    setFollowRobot: (enabled) => set((state) => ({ simulation: { ...state.simulation, followRobot: enabled } })),
     shutdownSimulation: async () => {
       clearSimulationBridge()
       try {

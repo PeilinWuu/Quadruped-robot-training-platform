@@ -78,6 +78,7 @@ export interface ViewerRuntime {
   setRobotCalibration?(calibration: RobotOverlayCalibration): boolean
   resetRobotCalibration?(): void
   focusRobot?(): boolean
+  setRobotFollow?(enabled: boolean): void
   getRobotOverlayStatus?(): RobotOverlayStatus | null
   setRobotVisualMode?(mode: Go2VisualMode): void
   reloadRobotVisuals?(): void

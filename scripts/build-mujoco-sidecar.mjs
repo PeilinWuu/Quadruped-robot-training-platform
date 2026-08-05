@@ -8,6 +8,10 @@ const repositoryRoot = resolve(scriptDirectory, '..')
 const sourceDirectory = join(repositoryRoot, 'native', 'mujoco-sidecar')
 const buildDirectory = join(sourceDirectory, 'build')
 const mujocoRoot = join(repositoryRoot, '.cache', 'mujoco', '3.11.0', 'install')
+const mpcCacheRoot = join(repositoryRoot, '.cache', 'mpc-dependencies')
+const eigenRoot = join(mpcCacheRoot, 'eigen', '3.4.0', 'source', 'eigen-3.4.0')
+const osqpRoot = join(mpcCacheRoot, 'osqp', '1.0.0', 'source')
+const qdldlRoot = join(mpcCacheRoot, 'qdldl', '0.1.8', 'source', 'qdldl-0.1.8')
 const outputDirectory = join(repositoryRoot, 'src-tauri', 'resources', 'sidecar')
 const developmentResourceRoot = join(repositoryRoot, 'src-tauri', 'target', 'debug')
 const releaseResourceRoot = join(repositoryRoot, 'src-tauri', 'target', 'release')
@@ -15,6 +19,11 @@ const executableName = 'quadruped-simulation-sidecar.exe'
 const dllName = 'mujoco.dll'
 const builtExecutable = join(buildDirectory, 'Release', executableName)
 const sourceDll = join(mujocoRoot, 'bin', dllName)
+const licenseFiles = [
+  [join(eigenRoot, 'COPYING.MPL2'), 'Eigen-MPL-2.0.txt'],
+  [join(osqpRoot, 'LICENSE'), 'OSQP-Apache-2.0.txt'],
+  [join(qdldlRoot, 'LICENSE'), 'QDLDL-Apache-2.0.txt'],
+]
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: repositoryRoot, stdio: 'inherit', shell: false, windowsHide: true })
@@ -41,6 +50,8 @@ function copyRuntimeResources(root) {
   copyAndVerify(join(repositoryRoot, 'src-tauri', 'resources', 'simulation', 'models', 'minimal-quadruped-v1.xml'), join(root, 'resources', 'simulation', 'models', 'minimal-quadruped-v1.xml'))
   copyDirectoryVerified(join(repositoryRoot, 'src-tauri', 'resources', 'simulation', 'models', 'unitree-go2-menagerie'), join(root, 'resources', 'simulation', 'models', 'unitree-go2-menagerie'))
   copyAndVerify(join(repositoryRoot, 'src-tauri', 'resources', 'licenses', 'MuJoCo-Apache-2.0.txt'), join(root, 'resources', 'licenses', 'MuJoCo-Apache-2.0.txt'))
+  copyAndVerify(join(repositoryRoot, 'src-tauri', 'resources', 'licenses', 'THIRD_PARTY_NOTICES.txt'), join(root, 'resources', 'licenses', 'THIRD_PARTY_NOTICES.txt'))
+  for (const [source, name] of licenseFiles) copyAndVerify(source, join(root, 'resources', 'licenses', name))
 }
 
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('D4C sidecar builds require Windows x64')
@@ -49,8 +60,18 @@ if (!existsSync(join(mujocoRoot, '.verified-sha256'))) {
   console.log('Verified MuJoCo cache is missing; fetching pinned MuJoCo 3.11.0...')
   run(process.execPath, [join(scriptDirectory, 'fetch-mujoco.mjs')])
 }
+for (const [name, root] of [['Eigen', eigenRoot], ['OSQP', osqpRoot], ['QDLDL', qdldlRoot]]) {
+  if (!existsSync(join(name === 'Eigen' ? join(root, 'Eigen') : root, name === 'Eigen' ? 'Core' : name === 'OSQP' ? 'include/public/osqp.h' : 'include/qdldl.h'))) {
+    throw new Error(`Verified ${name} cache is missing; run npm run setup:mpc before building`)
+  }
+}
+for (const [source, name] of licenseFiles) {
+  if (!existsSync(source)) throw new Error(`Pinned dependency license is missing: ${name}`)
+  copyAndVerify(source, join(repositoryRoot, 'src-tauri', 'resources', 'licenses', name))
+}
 run('cmake', ['--version'])
-run('cmake', ['-S', sourceDirectory, '-B', buildDirectory, '-G', 'Visual Studio 17 2022', '-A', 'x64', `-DMUJOCO_ROOT=${mujocoRoot}`])
+run('cmake', ['-S', sourceDirectory, '-B', buildDirectory, '-G', 'Visual Studio 17 2022', '-A', 'x64',
+  `-DMUJOCO_ROOT=${mujocoRoot}`, `-DEIGEN_ROOT=${eigenRoot}`, `-DOSQP_ROOT=${osqpRoot}`, `-DQDLDL_ROOT=${qdldlRoot}`])
 run('cmake', ['--build', buildDirectory, '--config', 'Release', '--parallel'])
 run('ctest', ['--test-dir', buildDirectory, '-C', 'Release', '--output-on-failure'])
 if (!existsSync(builtExecutable) || statSync(builtExecutable).size === 0) throw new Error('Release sidecar executable was not produced')

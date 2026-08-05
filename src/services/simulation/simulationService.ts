@@ -171,10 +171,14 @@ export class ManagedSimulationService {
   reset(): Promise<SimulationStatus> {
     return this.serial(async () => {
       const adapter = await this.adapterForUse()
+      const before = await adapter.getStatus()
+      const resumeAfterReset = before.simulationState === 'running'
       this.telemetry.clear()
+      if (resumeAfterReset) await adapter.pauseSimulation()
       await adapter.resetSimulation()
       const pose = await adapter.getLatestPose()
       if (pose) this.dispatch({ type: 'pose', payload: pose })
+      if (resumeAfterReset) await adapter.startSimulation()
       return adapter.getStatus()
     })
   }

@@ -438,6 +438,7 @@ export function useGaussianViewer() {
   useEffect(() => {
     if (!robotDesktop) return
     const removePoseListener = simulationService.onPose((pose) => {
+      runtimeRef.current?.setRobotFollow?.(useAppStore.getState().simulation.followRobot)
       if (runtimeRef.current?.updateRobotPose?.(pose)) {
         runtimeRef.current.setRobotVisible?.(robotVisibleRef.current)
       }

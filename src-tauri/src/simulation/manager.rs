@@ -1137,7 +1137,7 @@ mod tests {
         assert_eq!(manager.set_telemetry_rate(10).unwrap().rate_hz, 10);
         assert_eq!(manager.set_telemetry_rate(100).unwrap().rate_hz, 100);
         assert!(manager.set_telemetry_rate(9).is_err());
-        let target = manager
+        let unavailable = manager
             .set_motion_command(super::super::protocol::MotionCommand {
                 sequence: 7,
                 mode: super::super::protocol::MotionCommandMode::Locomotion,
@@ -1147,14 +1147,8 @@ mod tests {
                 body_height: 0.3,
                 valid_for_ms: 100,
             })
-            .unwrap();
-        assert!(!target.applied_by_controller);
-        assert_eq!(
-            target.controller_availability,
-            super::super::protocol::ControllerAvailability::NotImplemented
-        );
-        thread::sleep(Duration::from_millis(120));
-        assert!(manager.get_latest_telemetry().unwrap().command.timed_out);
+            .unwrap_err();
+        assert_eq!(unavailable.code, "LOCOMOTION_UNAVAILABLE");
         let cleared = manager.clear_motion_command().unwrap();
         assert_eq!(
             cleared.mode,
@@ -1217,6 +1211,39 @@ mod tests {
         let go2_pose = manager.run_step(10).unwrap();
         assert!(go2_pose.has_model_joints(super::super::protocol::GO2_MODEL_ID));
         assert!(go2_pose.root_position.iter().all(|value| value.is_finite()));
+        assert_eq!(manager.run_reset().unwrap(), SimulationState::Loaded);
+        assert_eq!(manager.run_start().unwrap(), SimulationState::Running);
+        for sequence in 20..30 {
+            let target = manager
+                .set_motion_command(super::super::protocol::MotionCommand {
+                    sequence,
+                    mode: super::super::protocol::MotionCommandMode::Locomotion,
+                    forward_velocity: 0.18,
+                    lateral_velocity: 0.0,
+                    yaw_rate: 0.0,
+                    body_height: 0.3,
+                    valid_for_ms: 250,
+                })
+                .unwrap();
+            assert_eq!(
+                target.controller_availability,
+                super::super::protocol::ControllerAvailability::Go2ConvexMpcV1
+            );
+            thread::sleep(Duration::from_millis(60));
+        }
+        let gait = manager.get_latest_telemetry().unwrap();
+        assert_eq!(gait.locomotion.controller_id, "go2-convex-mpc-v1");
+        assert_eq!(
+            gait.locomotion.availability,
+            super::super::protocol::LocomotionAvailability::Available
+        );
+        assert!(matches!(
+            gait.locomotion.state,
+            super::super::protocol::LocomotionState::EnteringTrot
+                | super::super::protocol::LocomotionState::Locomotion
+        ));
+        manager.clear_motion_command().unwrap();
+        assert_eq!(manager.run_pause().unwrap(), SimulationState::Paused);
         assert_eq!(manager.run_reset().unwrap(), SimulationState::Loaded);
         assert_eq!(manager.latest_pose().unwrap().simulation_time, 0.0);
         assert_eq!(manager.run_stop().unwrap(), SimulationState::Stopped);

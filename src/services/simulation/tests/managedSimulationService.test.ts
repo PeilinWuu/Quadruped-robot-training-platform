@@ -97,6 +97,14 @@ describe('ManagedSimulationService', () => {
     expect(listener).toHaveBeenCalledWith(POSE)
   })
 
+  it('pauses, resets, and resumes when reset is requested while running', async () => {
+    fake = fakeAdapter({ state: 'ready', simulationState: 'running', model: MODEL })
+    service = new ManagedSimulationService(async () => fake.adapter)
+    const status = await service.reset()
+    expect(fake.calls).toEqual(['pause', 'reset', 'start'])
+    expect(status.simulationState).toBe('running')
+  })
+
   it('validates speed before calling the adapter', async () => {
     await expect(service.setSpeed(.24)).rejects.toThrow('0.25')
     await expect(service.setSpeed(4.01)).rejects.toThrow('0.25')

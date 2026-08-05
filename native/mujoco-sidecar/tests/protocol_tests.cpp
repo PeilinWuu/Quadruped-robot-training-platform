@@ -106,14 +106,12 @@ int main() {
   expect(stand_status.ok && stand_status.payload["forwardVelocity"] == 0.0 && stand_status.payload["appliedByController"], "stand zeros velocity and applies hold");
   sidecar::MotionCommand locomotion{12, sidecar::MotionMode::locomotion, 0.2, -0.1, 0.3, 0.3, 100};
   const auto locomotion_status = engine.set_motion_command(locomotion);
-  expect(locomotion_status.ok && !locomotion_status.payload["appliedByController"] && locomotion_status.payload["controllerAvailability"] == "not-implemented", "locomotion accepted but not applied");
+  expect(!locomotion_status.ok && locomotion_status.code == "LOCOMOTION_UNAVAILABLE",
+         "minimal locomotion unavailable");
   sidecar::MotionCommand invalid = locomotion; invalid.forward_velocity = std::nan("");
   expect(!sidecar::valid_motion_command(invalid), "nonfinite motion rejected");
   invalid = locomotion; invalid.body_height = 0.41;
   expect(!sidecar::valid_motion_command(invalid), "motion bounds rejected");
-  std::this_thread::sleep_for(std::chrono::milliseconds(110));
-  const auto timed_out = engine.get_latest_telemetry().payload["command"];
-  expect(timed_out["timedOut"] && timed_out["forwardVelocity"] == 0.0 && !timed_out["appliedByController"], "command timeout zeros target without false execution");
   const auto cleared = engine.clear_motion_command();
   expect(cleared.ok && cleared.payload["mode"] == "stand" && !cleared.payload["timedOut"], "clear command restores stand");
   std::this_thread::sleep_for(std::chrono::milliseconds(110));
@@ -170,6 +168,32 @@ int main() {
   engine.reset();
   expect(!engine.get_latest_telemetry().payload["collision"]["isFallen"], "reset clears fall");
   expect(finite_json_numbers(go2_telemetry) && go2_telemetry.dump().size() < sidecar::kMaxLineBytes, "Go2 telemetry finite and bounded");
+  engine.reset();
+  for (int second = 0; second < 10; ++second) expect(engine.step(500).ok, "static MPC stand second");
+  const auto static_mpc = engine.test_static_mpc_diagnostics();
+  std::cout << "D5V_MPC_STATIC_10S=" << static_mpc << '\n';
+  expect(static_mpc["fault"].is_null() && static_mpc["qpFailureCount"] == 0,
+         "static MPC has no fault or QP failure");
+  expect(static_mpc["rootPosition"][2].get<double>() > 0.18 &&
+         static_mpc["rootPosition"][2].get<double>() < 0.35,
+         "static MPC base height bounded");
+  expect(!static_mpc["collision"]["isFallen"].get<bool>() &&
+         static_mpc["collision"]["torsoContacts"].get<int>() == 0 &&
+         static_mpc["collision"]["headContacts"].get<int>() == 0,
+         "static MPC no fall torso or head contact");
+  expect(static_mpc["solverMeanMs"].get<double>() < 15.0 &&
+         static_mpc["solverMaxMs"].get<double>() < 15.0,
+         "static MPC stays within 50Hz budget");
+  expect(static_mpc["actuatorSaturationCount"].get<std::uint64_t>() < 250,
+         "static MPC has no persistent saturation");
+  engine.reset();
+  const auto mpc_telemetry = engine.get_latest_telemetry().payload["locomotion"];
+  expect(mpc_telemetry["controllerId"] == "go2-convex-mpc-v1" &&
+         mpc_telemetry["availability"] == "available", "Go2 MPC telemetry identity");
+  expect(mpc_telemetry["mpcFrequencyHz"] == 50 && mpc_telemetry["legControllerFrequencyHz"] == 250 &&
+         mpc_telemetry["horizonSteps"] == 10, "Go2 MPC frequencies and horizon");
+  expect(!mpc_telemetry.contains("compensationEnabled") && !mpc_telemetry.contains("ikFailureCount") &&
+         !mpc_telemetry.contains("swingLeg"), "legacy crawl telemetry removed");
   for (int index = 0; index < 5; ++index) {
     const auto advanced = engine.step(1000);
     expect(advanced.ok && finite_pose(advanced.payload), "Go2 thousands stable");
@@ -210,6 +234,6 @@ int main() {
   const auto shutdown = protocol.process_line(command("q", "shutdown", Json::object()));
   expect(shutdown.should_stop, "shutdown joins physics");
   expect(sidecar::message_too_large_response().find("MESSAGE_TOO_LARGE") != std::string::npos, "oversize response");
-  std::cout << "D4C_CPP_CHECKS=" << checks << '\n';
+  std::cout << "D5VB1_CPP_CHECKS=" << checks << '\n';
   return 0;
 }

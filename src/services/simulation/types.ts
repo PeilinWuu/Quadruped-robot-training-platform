@@ -22,7 +22,7 @@ export interface SimulationModelDescription {
 }
 
 export const SIMULATION_MODELS: readonly SimulationModelDescription[] = [
-  { id: 'unitree-go2-menagerie', displayName: '宇树 Go2（实验室模型）', source: 'MuJoCo Menagerie / Unitree Go2', isDefault: true, visualProfile: 'Go2 基础几何预览', description: '当前仅保持站立，不包含步态控制' },
+  { id: 'unitree-go2-menagerie', displayName: '宇树 Go2（实验室模型）', source: 'MuJoCo Menagerie / Unitree Go2', isDefault: true, visualProfile: 'Go2 基础几何预览', description: '支持仿真专用 Go2 Convex MPC 步态演示' },
   { id: 'minimal-quadruped-v1', displayName: '最小四足（测试模型）', source: '项目测试模型', isDefault: false, visualProfile: '最小四足基础几何预览', description: '用于仿真链路回归测试' },
 ] as const
 export const DEFAULT_SIMULATION_MODEL_ID: SimulationModelId = 'unitree-go2-menagerie'
@@ -53,7 +53,27 @@ export interface MotionCommandStatus extends MotionCommand {
   timedOut: boolean
   appliedByController: boolean
   bodyHeightApplied: boolean
-  controllerAvailability: 'stand-hold' | 'not-implemented'
+  controllerAvailability: 'stand-hold' | 'go2-convex-mpc-v1' | 'not-implemented'
+}
+export interface LocomotionTelemetry {
+  controllerId: 'go2-convex-mpc-v1'; availability: 'available' | 'unavailable'
+  state: 'standing' | 'entering_trot' | 'locomotion' | 'stopping' | 'fault'
+  commandedForwardVelocity: number; filteredForwardVelocity: number
+  commandedYawRate: number; filteredYawRate: number
+  measuredForwardVelocity: number; measuredYawRate: number
+  mpcFrequencyHz: number; legControllerFrequencyHz: number; horizonSteps: number
+  gaitFrequencyHz: number; dutyFactor: number; gaitPhase: number
+  expectedContacts: [boolean, boolean, boolean, boolean]
+  actualContacts: [boolean, boolean, boolean, boolean]
+  desiredGroundForces: [[number, number, number], [number, number, number], [number, number, number], [number, number, number]]
+  actualGroundForces: [[number, number, number], [number, number, number], [number, number, number], [number, number, number]]
+  solverStatus: string; solverIterations: number; solverMeanMs: number; solverMaxMs: number
+  qpFailureCount: number
+  touchdownEventCount: number; onTimeTouchdownCount: number
+  lateTouchdownEventCount: number; earlyTouchdownEventCount: number; touchdownTimeoutCount: number
+  touchdownLatencyMeanMs: number; touchdownLatencyMaxMs: number; touchdownLatencyP95Ms: number
+  footSlipSummary: number; jointLimitClipCount: number; actuatorSaturationCount: number
+  faultReason: string | null
 }
 export interface TelemetryConfig { rateHz: number }
 export interface JointTelemetry {
@@ -108,6 +128,7 @@ export interface RobotTelemetry {
   feet: FootTelemetry[]
   collision: CollisionTelemetry
   command: MotionCommandStatus
+  locomotion: LocomotionTelemetry
   performance: PerformanceTelemetry
 }
 export interface ModelMetadata {
