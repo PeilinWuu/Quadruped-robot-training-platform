@@ -12,11 +12,20 @@
 namespace sidecar::controllers::mpc {
 namespace {
 
+constexpr double kAttitudeFeedbackGain = 0.30;
+constexpr double kAttitudeRateFeedbackGain = 0.06;
+constexpr double kMaximumFeedbackReference = 0.10;
+
 double wrap_angle(double value) {
   constexpr double kPi = 3.14159265358979323846;
   while (value > kPi) value -= 2.0 * kPi;
   while (value < -kPi) value += 2.0 * kPi;
   return value;
+}
+
+double attitude_feedback_reference(const double angle, const double rate) {
+  return std::clamp(-kAttitudeFeedbackGain * angle - kAttitudeRateFeedbackGain * rate,
+                    -kMaximumFeedbackReference, kMaximumFeedbackReference);
 }
 
 }  // namespace
@@ -69,8 +78,10 @@ QpProblem ConvexMpc::build_problem(const RobotState& state, const MotionTarget& 
   for (int step = 0; step < horizon; ++step) {
     MpcStateVector desired = initial;
     const double time = (step + 1) * config_.node_dt;
-    desired[0] = 0.0;
-    desired[1] = 0.0;
+    // Use a bounded PD correction around level attitude so the QP damps
+    // accumulated roll/pitch without introducing an integral windup path.
+    desired[0] = attitude_feedback_reference(initial[0], initial[6]);
+    desired[1] = attitude_feedback_reference(initial[1], initial[7]);
     desired[2] = wrap_angle(initial[2] + target.yaw_rate * time);
     desired.segment<2>(3) = initial.segment<2>(3) + commanded_velocity_world.head<2>() * time;
     desired[5] = target.body_height + com_height_offset;

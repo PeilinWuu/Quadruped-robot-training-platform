@@ -41,6 +41,7 @@ class Go2ConvexMpcController final : public LocomotionController {
   TouchdownTracker touchdowns_;
   std::array<SwingTrajectory, kLegCount> swings_{};
   ContactVector previous_contacts_{{true, true, true, true}};
+  std::array<double, kLegCount> expected_touchdown_times_{};
   std::array<unsigned int, kLegCount> missed_contact_ticks_{};
   FootVectors desired_forces_{};
   JointVector home_{JointVector::Zero()};
