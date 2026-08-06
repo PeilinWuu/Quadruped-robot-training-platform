@@ -1,9 +1,11 @@
-import { copyFile, mkdir, readdir } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { copyFile, lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const PRODUCTION_PUBLIC_ASSETS = ['favicon.svg', 'icons.svg'] as const
+const GO2_LOCK_PATH = 'src/features/gaussian-viewer/robot/go2Visuals.lock.json'
 
 function productionPublicAssets(): Plugin {
   let root = ''
@@ -20,6 +22,20 @@ function productionPublicAssets(): Plugin {
       await Promise.all(PRODUCTION_PUBLIC_ASSETS.map((asset) => (
         copyFile(resolve(root, 'public', asset), resolve(output, asset))
       )))
+      const lock = JSON.parse(await readFile(resolve(root, GO2_LOCK_PATH), 'utf8')) as {
+        sources: Array<{ outputGlb: string; glbSha256: string }>
+      }
+      const target = resolve(output, 'robot-visuals/unitree-go2/generated')
+      await mkdir(target, { recursive: true })
+      for (const source of lock.sources) {
+        if (!/^[a-z0-9_]+\.glb$/.test(source.outputGlb)) throw new Error('Invalid Go2 production asset name')
+        const input = resolve(root, 'public/robot-visuals/unitree-go2/generated', source.outputGlb)
+        const info = await lstat(input)
+        if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe Go2 production asset')
+        const bytes = await readFile(input)
+        if (createHash('sha256').update(bytes).digest('hex') !== source.glbSha256) throw new Error('Go2 production asset hash mismatch')
+        await copyFile(input, resolve(target, source.outputGlb))
+      }
       const sogFiles = await findSogFiles(output)
       if (sogFiles.length > 0) {
         throw new Error('Production build contains forbidden SOG assets')
@@ -38,7 +54,7 @@ async function findSogFiles(directory: string): Promise<string[]> {
   return matches
 }
 
-// Development keeps the local test fixture. Production copies only an explicit small-asset list.
+// Development serves generated Go2 GLBs and the local SOG fixture. Production copies only locked GLBs.
 export default defineConfig(({ command }) => ({
   publicDir: command === 'serve' ? 'public' : false,
   plugins: [react(), productionPublicAssets()],

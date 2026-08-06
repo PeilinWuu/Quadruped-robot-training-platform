@@ -32,6 +32,18 @@ export function GaussianViewport() {
     orientationBusy,
     rotateSceneOrientation,
     resetSceneOrientation,
+    robotDesktop,
+    robotPreview,
+    toggleRobotVisible,
+    focusRobot,
+    setRobotCalibration,
+    resetRobotCalibration,
+    setRobotVisualMode,
+    reloadRobotVisuals,
+    environmentPreview,
+    toggleEnvironmentVisible,
+    toggleEnvironmentGrid,
+    focusEnvironment,
   } = useGaussianViewer()
   const { phase, status, message } = viewerState
   const backingWidth = status ? Math.floor(status.width * status.pixelRatio) : 0
@@ -94,6 +106,79 @@ export function GaussianViewport() {
         重置视角
       </button>
     </div>
+    <aside className="robot-preview" aria-label="机器人显示调试">
+      <details>
+      <summary><strong>机器人显示调试</strong><span>D4E</span></summary>
+      {!robotDesktop
+        ? <p>机器人预览仅桌面版可用</p>
+        : <>
+            {robotPreview.error ? <p className="error">{robotPreview.error}</p> : null}
+            {robotPreview.overlay?.modelId === 'unitree-go2-menagerie' ? <>
+              <label className="robot-preview__visual-mode">当前视觉模式
+                <select value={robotPreview.overlay.visual?.mode ?? 'official-mesh'} onChange={(event) => setRobotVisualMode(event.target.value as 'official-mesh' | 'primitive-debug')}>
+                  <option value="official-mesh">Go2 官方网格</option>
+                  <option value="primitive-debug">Go2 基础几何调试</option>
+                </select>
+              </label>
+              <dl>
+                <div><dt>网格状态</dt><dd>{robotPreview.overlay.visual?.phase ?? 'idle'}</dd></div>
+                <div><dt>加载部件</dt><dd>{robotPreview.overlay.visual ? `${robotPreview.overlay.visual.loadedParts}/${robotPreview.overlay.visual.totalParts}` : '—'}</dd></div>
+                <div><dt>读取字节</dt><dd>{robotPreview.overlay.visual ? `${robotPreview.overlay.visual.loadedBytes}/${robotPreview.overlay.visual.totalBytes}` : '—'}</dd></div>
+              </dl>
+            </> : <p>Minimal 模型仅支持基础几何</p>}
+            <div className="robot-preview__actions">
+              <button type="button" onClick={toggleRobotVisible}>{robotPreview.visible ? '隐藏机器人' : '显示机器人'}</button>
+              <button type="button" onClick={focusRobot}>聚焦机器人</button>
+              {robotPreview.overlay?.modelId === 'unitree-go2-menagerie' ? <button type="button" onClick={reloadRobotVisuals}>重新加载网格</button> : null}
+            </div>
+            <div className="environment-preview__summary">
+              <strong>平地碰撞演示</strong>
+              <span>{environmentPreview.halfExtent * 2} × {environmentPreview.halfExtent * 2} m · Y={environmentPreview.floorHeight}</span>
+              <div className="robot-preview__actions">
+                <button type="button" onClick={toggleEnvironmentVisible}>{environmentPreview.visible ? '隐藏平地' : '显示平地'}</button>
+                <button type="button" onClick={toggleEnvironmentGrid}>{environmentPreview.gridVisible ? '隐藏网格线' : '显示网格线'}</button>
+                <button type="button" onClick={focusEnvironment}>聚焦环境</button>
+              </div>
+            </div>
+            <div className="robot-preview__calibration-wrap">
+              <strong>内存校准</strong>
+              <div className="robot-preview__calibration">
+                {(['X', 'Y', 'Z'] as const).map((axis, index) => <label key={axis}>
+                  {axis}
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={robotPreview.calibration.translation[index]}
+                    onChange={(event) => {
+                      const translation = [...robotPreview.calibration.translation] as [number, number, number]
+                      translation[index] = Number(event.target.value)
+                      setRobotCalibration({ ...robotPreview.calibration, translation }, robotPreview.yawDegrees)
+                    }}
+                  />
+                </label>)}
+                <label>Yaw°<input
+                  type="number"
+                  step="5"
+                  value={robotPreview.yawDegrees}
+                  onChange={(event) => setRobotCalibration(robotPreview.calibration, Number(event.target.value))}
+                /></label>
+                <label>Scale<input
+                  type="number"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value={robotPreview.calibration.scale}
+                  onChange={(event) => setRobotCalibration(
+                    { ...robotPreview.calibration, scale: Number(event.target.value) },
+                    robotPreview.yawDegrees,
+                  )}
+                /></label>
+                <button type="button" onClick={resetRobotCalibration}>恢复默认</button>
+              </div>
+            </div>
+          </>}
+      </details>
+    </aside>
     {desktop && currentScene ? <div
       className="gaussian-viewport__orientation-controls"
       aria-label="Scene orientation controls"

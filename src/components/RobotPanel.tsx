@@ -1,7 +1,129 @@
-import { BatteryCharging, Bot, Cpu, Gauge, MapPin, RadioTower } from 'lucide-react'
-import { Progress, Select } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Bot, Cpu, Gauge, RadioTower } from 'lucide-react'
 import { Panel } from './Panel'
-import { useAppStore } from '../store/useAppStore'
-import type { ControlMode } from '../types'
+import { useAppStore, type SimulationUiState } from '../store/useAppStore'
+import { SIMULATION_MODELS } from '../services/simulation/types'
+import { simulationService } from '../services/simulation/simulationService'
+import { KeyboardLocomotionController, type DemoSpeed, type KeyboardLocomotionState } from '../services/simulation/KeyboardLocomotionController'
 
-export function RobotPanel({ notify }: { notify: (text: string) => void }) { const { robot, setControlMode } = useAppStore(); if (!robot) return <Panel title="机器人状态"><div className="skeleton-line" /></Panel>; const change = (mode: ControlMode) => { setControlMode(mode); notify(`控制模式已切换为${mode === 'autonomous' ? '自主' : mode === 'manual' ? '手动' : '辅助'}模式（Mock）`) }; return <Panel title="机器人状态" extra={<span className="online"><i/> ONLINE</span>}><div className="robot-status"><div className="robot-model"><div className="model-body"><Bot size={38}/></div><span>Q-FIRE 01</span></div><div className="status-list"><div><BatteryCharging size={14}/><span>电量</span><Progress percent={robot.battery} size="small" showInfo={false} strokeColor="#43d69b"/><b>{robot.battery}%</b></div><div><Cpu size={14}/><span>CPU 温度</span><b>{robot.cpuTemp}°C</b></div><div><RadioTower size={14}/><span>关节状态</span><b className="good">{robot.jointStatus}</b></div><div><Gauge size={14}/><span>步态 / 速度</span><b>{robot.gait} · {robot.speed} m/s</b></div><div><MapPin size={14}/><span>当前位置</span><b>({robot.position.join(', ')})</b></div></div></div><div className="control-mode"><span>控制模式</span><Select value={robot.controlMode} onChange={change} options={[{ value: 'autonomous', label: '自主模式' }, { value: 'assisted', label: '辅助模式' }, { value: 'manual', label: '手动模式' }]} /></div></Panel> }
+const number = (value: number) => value.toFixed(3)
+const vector = (value: [number, number, number]) => value.map(number).join(', ')
+
+export function RobotPanel() {
+  const simulation = useAppStore((state) => state.simulation)
+  const reset = useAppStore((state) => state.resetSimulation)
+  const clearEvent = useAppStore((state) => state.clearLatestCollisionEvent)
+  const setFollowRobot = useAppStore((state) => state.setFollowRobot)
+  const controllerRef = useRef<KeyboardLocomotionController | null>(null)
+  const [keyboard, setKeyboard] = useState<KeyboardLocomotionState>({ enabled: false, stopReason: null, speed: 'low', forwardVelocity: 0, yawRate: 0 })
+  useEffect(() => {
+    const controller = new KeyboardLocomotionController({
+      setMotionCommand: (command) => simulationService.setMotionCommand(command),
+      clearMotionCommand: () => simulationService.clearMotionCommand(),
+      reset: () => simulationService.reset(),
+    }, setKeyboard)
+    controllerRef.current = controller
+    return () => { controller.dispose(); controllerRef.current = null }
+  }, [])
+  const locomotionAllowed = simulation.selectedModelId === 'unitree-go2-menagerie'
+    && simulation.simulationState === 'running' && !simulation.latestTelemetry?.collision.isFallen
+    && simulation.latestTelemetry?.locomotion.state !== 'fault'
+  useEffect(() => {
+    if (!locomotionAllowed && controllerRef.current?.isEnabled()) controllerRef.current.disable('仿真状态变化，已自动停止')
+  }, [locomotionAllowed])
+  return <RobotPanelContent simulation={simulation} keyboard={keyboard}
+    onToggleKeyboard={() => keyboard.enabled ? controllerRef.current?.disable() : locomotionAllowed && controllerRef.current?.enable()}
+    onSpeed={(speed) => controllerRef.current?.setSpeed(speed)} onFollow={setFollowRobot}
+    onReset={() => void reset()} onClearEvent={clearEvent}/>
+}
+
+export function RobotPanelContent({ simulation, keyboard, onToggleKeyboard, onSpeed, onFollow, onReset, onClearEvent }: {
+  simulation: SimulationUiState; keyboard?: KeyboardLocomotionState; onToggleKeyboard?: () => void
+  onSpeed?: (speed: DemoSpeed) => void; onFollow?: (enabled: boolean) => void
+  onReset?: () => void; onClearEvent?: () => void
+}) {
+  const pose = simulation.latestPose
+  const telemetry = simulation.latestTelemetry
+  const connected = simulation.processState === 'ready'
+  const description = SIMULATION_MODELS.find((model) => model.id === simulation.selectedModelId)!
+  const updatedAt = telemetry?.wallTime ?? pose?.updatedAt
+  const updated = updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '暂未接入'
+  const command = telemetry?.command ?? simulation.latestMotionCommand
+  const collision = telemetry?.collision
+  const collisionEvent = simulation.latestCollisionEvent
+  const locomotion = telemetry?.locomotion
+  const keyboardAllowed = simulation.selectedModelId === 'unitree-go2-menagerie'
+    && simulation.simulationState === 'running' && !collision?.isFallen && locomotion?.state !== 'fault'
+  return <Panel title="机器人状态" extra={<span className={connected ? 'online' : 'offline'}><i/>{connected ? ' SIDECAR READY' : ' OFFLINE'}</span>}>
+    <div className="robot-live-summary">
+      <div className="robot-model"><div className="model-body"><Bot size={38}/></div><span>{simulation.model?.modelId ?? '暂未加载模型'}</span></div>
+      <dl>
+        <div><dt>数据源</dt><dd>{telemetry ? 'MuJoCo 虚拟机器人' : '等待虚拟遥测'}</dd></div>
+        <div><dt>实体机器人</dt><dd>未连接</dd></div>
+        <div><dt>Simulation</dt><dd>{simulation.simulationState}</dd></div>
+        <div><dt>当前模型</dt><dd>{description.displayName}</dd></div>
+        <div><dt>模型来源</dt><dd>{description.source}</dd></div>
+        <div><dt>外观</dt><dd>{simulation.visualMode === 'official-mesh' ? 'Go2 官方网格' : '基础几何'}</dd></div>
+        <div><dt>仿真时间</dt><dd>{telemetry ? `${number(telemetry.simulationTime)} s` : pose ? `${number(pose.simulationTime)} s` : '暂未接入'}</dd></div>
+        <div><dt>倍速</dt><dd>{simulation.speed.toFixed(2)}×</dd></div>
+        <div><dt>Telemetry sequence</dt><dd>{telemetry?.sequence ?? '暂未接入'}</dd></div>
+        <div><dt>Pose sequence</dt><dd>{pose?.sequence ?? '暂未接入'}</dd></div>
+        <div><dt>更新时间</dt><dd>{updated}</dd></div>
+      </dl>
+    </div>
+    <div className="robot-pose-grid">
+      <section><h4><Gauge size={13}/>根节点 · 世界 Y-up</h4><p>位置：{telemetry ? vector(telemetry.root.position) : pose ? `X ${number(pose.rootPosition[0])} · Y ${number(pose.rootPosition[1])} · Z ${number(pose.rootPosition[2])}` : '暂未接入'}</p><p>线速度：{telemetry ? `${vector(telemetry.root.linearVelocityWorld)} m/s（${number(telemetry.root.linearSpeed)}）` : '暂未接入'}</p><p>角速度：{telemetry ? `${vector(telemetry.root.angularVelocityWorld)} rad/s（${number(telemetry.root.angularSpeed)}）` : '暂未接入'}</p></section>
+      <section><h4><RadioTower size={13}/>虚拟 IMU · body frame</h4>{telemetry ? <><p>姿态 [x,y,z,w]：{telemetry.imu.orientation.map(number).join(', ')}</p><p>角速度：{vector(telemetry.imu.angularVelocityBody)} rad/s</p><p>线加速度：{vector(telemetry.imu.linearAccelerationBody)} m/s²</p><p>包含重力：{telemetry.imu.includesGravity ? '是' : '否'} · {telemetry.imu.source}</p></> : <p>暂未接入</p>}</section>
+    </div>
+    <details className="robot-telemetry-details"><summary>12 关节遥测 {telemetry ? `${telemetry.joints.length}/12` : ''}</summary>
+      <div className="robot-telemetry-table"><div className="head"><b>Joint</b><b>Pos</b><b>Vel</b><b>Torque</b><b>Force</b><b>Target</b><b>Limit</b></div>{telemetry?.joints.map((joint) => <div key={joint.name}><i>{joint.name}</i><span>{number(joint.position)}</span><span>{number(joint.velocity)}</span><span>{number(joint.actuatorTorque)}</span><span>{number(joint.actuatorForce)}</span><span>{number(joint.controlTarget)}</span><span>{joint.limited ? `${number(joint.lowerLimit!)}…${number(joint.upperLimit!)}` : 'unlimited'}</span></div>) ?? pose?.joints.map((joint) => <div key={joint.name}><i>{joint.name}</i><span>{number(joint.position)}</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span></div>) ?? <p>暂未接入</p>}</div>
+    </details>
+    <details className="robot-telemetry-details" open><summary>四足接触 · 世界 Y-up</summary><div className="robot-feet-grid">{telemetry?.feet.map((foot) => <span key={foot.name}><b>{foot.name} · {foot.inContact ? '接触' : '未接触'}</b><i>{foot.contactCount} 点 · {number(foot.normalForce)} N</i><i>Force {vector(foot.forceWorld)}</i></span>) ?? <p>暂未接入</p>}</div></details>
+    <details className="robot-telemetry-details flat-ground-collision" open><summary>平地碰撞演示</summary>
+      {collision ? <>
+        <dl className="robot-performance">
+          <div><dt>环境</dt><dd>{simulation.model?.environment.displayName ?? collision.environmentId}</dd></div>
+          <div><dt>地面 / 摩擦</dt><dd>{simulation.model ? `${simulation.model.environment.halfExtent * 2}m · ${simulation.model.environment.friction.join(' / ')}` : '—'}</dd></div>
+          <div><dt>总接触 / 足端</dt><dd>{collision.totalEnvironmentContacts} / {collision.footContacts}</dd></div>
+          <div><dt>非足端 / 躯干</dt><dd>{collision.nonFootContacts} / {collision.torsoContacts}</dd></div>
+          <div><dt>最大 / 总法向力</dt><dd>{number(collision.maxNormalForce)} / {number(collision.totalNormalForce)} N</dd></div>
+          <div><dt>根高度</dt><dd>{number(collision.rootHeightAboveFloor)} m</dd></div>
+          <div><dt>Roll / Pitch</dt><dd>{number(collision.roll)} / {number(collision.pitch)} rad</dd></div>
+          <div><dt>跌倒</dt><dd className={collision.isFallen ? 'collision-alert' : ''}>{collision.isFallen ? `是 · ${collision.fallReason}` : '否'}</dd></div>
+          <div><dt>越界</dt><dd className={collision.isOutOfBounds ? 'collision-alert' : ''}>{collision.isOutOfBounds ? '是' : '否'}</dd></div>
+          <div><dt>最近事件</dt><dd>{collisionEvent ? `${collisionEvent.kind} · ${number(collisionEvent.normalForce)} N` : '无'}</dd></div>
+        </dl>
+        <div className="collision-demo-actions"><button type="button" disabled={!onReset || simulation.busy || !simulation.model} onClick={onReset}>重置机器人</button><button type="button" disabled={!onClearEvent || !collisionEvent} onClick={onClearEvent}>清除最近事件</button></div>
+        <section className={`locomotion-demo ${keyboard?.enabled ? 'locomotion-demo--active' : ''}`}>
+          <div className="locomotion-demo__actions">
+            <button type="button" disabled={!onToggleKeyboard || (!keyboard?.enabled && !keyboardAllowed)} onClick={onToggleKeyboard}>{keyboard?.enabled ? '解除键盘控制' : '启用键盘控制'}</button>
+            <label>演示速度<select value={keyboard?.speed ?? 'low'} onChange={(event) => onSpeed?.(event.target.value as DemoSpeed)}><option value="low">低</option><option value="medium">中</option></select></label>
+            <label><input type="checkbox" checked={simulation.followRobot} onChange={(event) => onFollow?.(event.target.checked)}/> 跟随机器人</label>
+          </div>
+          <p><b>{keyboard?.enabled ? '键盘控制已启用' : keyboard?.stopReason ?? '键盘控制默认未启用'}</b> · W/S 前后 · A/D 转向 · Space 停止 · R 重置 · Esc 解除</p>
+          {!keyboardAllowed && <p className="collision-alert">仅 Go2 + running + 无故障时可启用；Minimal 不支持运动。需要 reset 清除跌倒或 fault。</p>}
+          <dl className="robot-performance">
+            <div><dt>控制器 / 状态</dt><dd>{locomotion ? `${locomotion.controllerId} / ${locomotion.state}` : '—'}</dd></div>
+            <div><dt>Gait / Phase</dt><dd>{locomotion ? `${number(locomotion.gaitFrequencyHz)} Hz / ${number(locomotion.gaitPhase)}` : '—'}</dd></div>
+            <div><dt>期望 / 实际接触</dt><dd>{locomotion ? `${locomotion.expectedContacts.map(Number).join('')} / ${locomotion.actualContacts.map(Number).join('')}` : '—'}</dd></div>
+            <div><dt>Commanded</dt><dd>{locomotion ? `${number(locomotion.commandedForwardVelocity)} m/s · ${number(locomotion.commandedYawRate)} rad/s` : '—'}</dd></div>
+            <div><dt>Filtered</dt><dd>{locomotion ? `${number(locomotion.filteredForwardVelocity)} m/s · ${number(locomotion.filteredYawRate)} rad/s` : '—'}</dd></div>
+            <div><dt>Measured</dt><dd>{locomotion ? `${number(locomotion.measuredForwardVelocity)} m/s · ${number(locomotion.measuredYawRate)} rad/s` : '—'}</dd></div>
+            <div><dt>Solver</dt><dd>{locomotion ? `${locomotion.solverStatus} · ${locomotion.solverIterations} iter · ${number(locomotion.solverMeanMs)} / ${number(locomotion.solverMaxMs)} ms` : '—'}</dd></div>
+            <div><dt>QP 失败</dt><dd>{locomotion?.qpFailureCount ?? '—'}</dd></div>
+            <div><dt>触地 总计 / 准时 / 延迟 / 提前 / 超时</dt><dd>{locomotion ? `${locomotion.touchdownEventCount} / ${locomotion.onTimeTouchdownCount} / ${locomotion.lateTouchdownEventCount} / ${locomotion.earlyTouchdownEventCount} / ${locomotion.touchdownTimeoutCount}` : '—'}</dd></div>
+            <div><dt>触地延迟 均值 / 最大 / P95</dt><dd>{locomotion ? `${locomotion.touchdownLatencyMeanMs.toFixed(1)} / ${locomotion.touchdownLatencyMaxMs.toFixed(1)} / ${locomotion.touchdownLatencyP95Ms.toFixed(1)} ms` : '—'}</dd></div>
+            <div><dt>滑移 / 关节裁剪 / 饱和</dt><dd>{locomotion ? `${number(locomotion.footSlipSummary)} m/s · ${locomotion.jointLimitClipCount} / ${locomotion.actuatorSaturationCount}` : '—'}</dd></div>
+            <div><dt>Fault</dt><dd className={locomotion?.faultReason ? 'collision-alert' : ''}>{locomotion?.faultReason ?? '无'}</dd></div>
+          </dl>
+          <p>侧移后续接入。MuJoCo仿真专用Convex MPC，不代表实体Go2控制器。</p>
+        </section>
+      </> : <p>等待 MuJoCo 碰撞遥测</p>}
+      <p className="collision-demo-warning">当前为虚拟碰撞演示，不代表实体 Go2 安全评估。</p>
+    </details>
+    <details className="robot-telemetry-details"><summary>仿真性能（非硬实时保证）</summary>{telemetry ? <dl className="robot-performance"><div><dt>Physics / Control</dt><dd>{number(telemetry.performance.physicsFrequencyHz)} / {number(telemetry.performance.controlFrequencyHz)} Hz</dd></div><div><dt>Pose / Telemetry</dt><dd>{number(telemetry.performance.posePublishFrequencyHz)} / {number(telemetry.performance.telemetryPublishFrequencyHz)} Hz</dd></div><div><dt>Real-time factor</dt><dd>{number(telemetry.performance.realTimeFactor)}</dd></div><div><dt>Physics mean/max</dt><dd>{number(telemetry.performance.physicsStepMeanMs)} / {number(telemetry.performance.physicsStepMaxMs)} ms</dd></div><div><dt>Control mean/max</dt><dd>{number(telemetry.performance.controlStepMeanMs)} / {number(telemetry.performance.controlStepMaxMs)} ms</dd></div><div><dt>Dropped pose/telemetry</dt><dd>{telemetry.performance.droppedPoseEvents} / {telemetry.performance.droppedTelemetryEvents}</dd></div></dl> : <p>暂未接入</p>}</details>
+    <section className="robot-unavailable"><h4><Gauge size={13}/>虚拟运动命令</h4><p>{command ? `${command.mode} · [${number(command.forwardVelocity)}, ${number(command.lateralVelocity)}, ${number(command.yawRate)}] · ${command.timedOut ? '已超时' : '有效'} · ${command.appliedByController ? '控制器已执行' : '仅接收，未执行'} · ${command.controllerAvailability}` : '暂未发送'}</p></section>
+    <section className="robot-unavailable"><h4><Cpu size={13}/>尚未接入的实体遥测</h4><p>电池、CPU 温度、网络信号、真实步态、传感器状态、Actuator telemetry、实体 Go2 在线状态、相机、LiDAR、真机故障码：<b>暂未接入</b></p></section>
+    <section className="robot-unavailable"><h4><RadioTower size={13}/>连接边界</h4><p><b>实体机器人未连接</b>；当前数据只来自 MuJoCo 仿真。{description.description}</p></section>
+  </Panel>
+}

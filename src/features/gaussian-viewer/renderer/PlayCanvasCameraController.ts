@@ -102,6 +102,13 @@ export class PlayCanvasCameraController {
     this.applyPose()
   }
 
+  followTarget(target: Vec3, smoothing = 0.18): void {
+    if (this.disposed || !Number.isFinite(target.x + target.y + target.z)) return
+    const alpha = Math.min(Math.max(smoothing, 0), 1)
+    this.target.lerp(this.target, target, alpha)
+    this.applyPose()
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
