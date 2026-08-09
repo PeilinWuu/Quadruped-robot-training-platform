@@ -1471,7 +1471,9 @@ mod tests {
         assert!(go2_pose.root_position.iter().all(|value| value.is_finite()));
         assert_eq!(manager.run_reset().unwrap(), SimulationState::Loaded);
         assert_eq!(manager.run_start().unwrap(), SimulationState::Running);
-        for sequence in 20..30 {
+        let go2_simulation_started = manager.get_latest_telemetry().unwrap().simulation_time;
+        let go2_performance_started = Instant::now();
+        for sequence in 20..55 {
             let target = manager
                 .set_motion_command(super::super::protocol::MotionCommand {
                     sequence,
@@ -1490,6 +1492,14 @@ mod tests {
             thread::sleep(Duration::from_millis(60));
         }
         let gait = manager.get_latest_telemetry().unwrap();
+        let go2_wall_elapsed = go2_performance_started.elapsed().as_secs_f64();
+        let go2_simulation_elapsed = gait.simulation_time - go2_simulation_started;
+        let raw_go2_rtf = go2_simulation_elapsed / go2_wall_elapsed;
+        assert!(go2_wall_elapsed >= 2.0);
+        assert!((400.0..=600.0).contains(&gait.performance.physics_frequency_hz));
+        assert!((0.8..=1.2).contains(&gait.performance.real_time_factor));
+        assert!((0.8..=1.2).contains(&raw_go2_rtf));
+        assert!((gait.performance.real_time_factor - raw_go2_rtf).abs() <= 0.2);
         assert_eq!(gait.locomotion.controller_id, "go2-convex-mpc-v1");
         assert_eq!(
             gait.locomotion.availability,
@@ -1501,7 +1511,7 @@ mod tests {
                 | super::super::protocol::LocomotionState::Locomotion
         ));
         println!(
-            "D6_ARCH1_GO2_METRICS physics_hz={:.2} rtf={:.3} leg_hz={} mpc_hz={} solver_mean_ms={:.3} solver_max_ms={:.3} qp_failures={} actuator_saturation={}",
+            "D6_ARCH1_GO2_METRICS physics_hz={:.2} rtf={:.3} raw_rtf={raw_go2_rtf:.3} wall_seconds={go2_wall_elapsed:.3} simulation_seconds={go2_simulation_elapsed:.3} leg_hz={} mpc_hz={} solver_mean_ms={:.3} solver_max_ms={:.3} qp_failures={} actuator_saturation={}",
             gait.performance.physics_frequency_hz,
             gait.performance.real_time_factor,
             gait.locomotion.leg_controller_frequency_hz,

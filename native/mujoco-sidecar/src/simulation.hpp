@@ -91,6 +91,10 @@ class SimulationEngine {
   [[nodiscard]] nlohmann::json test_locomotion_profile() const;
   [[nodiscard]] nlohmann::json test_locomotion_diagnostics() const;
   [[nodiscard]] nlohmann::json test_static_mpc_diagnostics() const;
+  [[nodiscard]] nlohmann::json test_performance_window(double wall_elapsed_seconds,
+                                                        double simulation_elapsed_seconds,
+                                                        std::uint64_t physics_steps);
+  [[nodiscard]] bool test_has_stable_performance_snapshot() const;
   bool test_set_root_state(const std::array<double, 3>& position,
                            const std::array<double, 4>& quaternion_wxyz);
 #endif
@@ -106,6 +110,8 @@ class SimulationEngine {
   EngineResult invalid_state() const;
   nlohmann::json pose_locked(bool advance_sequence);
   nlohmann::json telemetry_locked(bool advance_sequence, bool refresh_performance = true);
+  nlohmann::json performance_locked(std::chrono::steady_clock::time_point now,
+                                    double simulation_time, bool active);
   nlohmann::json collision_telemetry_locked();
   nlohmann::json motion_status_locked() const;
   nlohmann::json state_payload_locked() const;

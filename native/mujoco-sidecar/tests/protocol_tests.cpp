@@ -54,6 +54,64 @@ int main() {
   expect(loaded.payload["jointCount"] == 12, "12 joints");
   expect(loaded.payload["actuatorCount"] == 12, "12 actuators");
   expect(std::abs(loaded.payload["timestep"].get<double>() - 0.002) < 1e-12, "fixed timestep");
+  expect(!engine.test_has_stable_performance_snapshot(), "load starts performance warmup");
+  const auto one_step_performance = engine.test_performance_window(0.012, 0.002, 1);
+  expect(!one_step_performance["stableSnapshotCached"].get<bool>(),
+         "one step does not create stable performance snapshot");
+  const double one_step_hz = one_step_performance["performance"]["physicsFrequencyHz"];
+  const auto hundred_ms_performance = engine.test_performance_window(0.100, 0.100, 50);
+  expect(!hundred_ms_performance["stableSnapshotCached"].get<bool>() &&
+             std::abs(hundred_ms_performance["performance"]["physicsFrequencyHz"].get<double>() -
+                      500.0) < 1e-6 &&
+             hundred_ms_performance["performance"]["physicsFrequencyHz"].get<double>() !=
+                 one_step_hz,
+         "100ms warmup updates instead of freezing first step");
+  const auto five_hundred_ms_performance = engine.test_performance_window(0.500, 0.500, 250);
+  expect(!five_hundred_ms_performance["stableSnapshotCached"].get<bool>() &&
+             std::abs(five_hundred_ms_performance["performance"]["realTimeFactor"].get<double>() -
+                      1.0) < 1e-6,
+         "500ms remains uncached warmup");
+  const auto stable_performance = engine.test_performance_window(1.100, 1.100, 550);
+  expect(stable_performance["stableSnapshotCached"].get<bool>() &&
+             std::abs(stable_performance["performance"]["physicsFrequencyHz"].get<double>() -
+                      500.0) < 1e-6 &&
+             std::abs(stable_performance["performance"]["realTimeFactor"].get<double>() -
+                      1.0) < 1e-6,
+         "one second creates finite stable performance snapshot");
+  expect(finite_json_numbers(stable_performance), "stable performance numbers finite");
+
+  expect(engine.reset().ok && !engine.test_has_stable_performance_snapshot(),
+         "reset restarts performance warmup");
+  const auto delayed_first_step = engine.test_performance_window(0.012, 0.002, 1);
+  expect(delayed_first_step["performance"]["realTimeFactor"].get<double>() < 0.2 &&
+             !delayed_first_step["stableSnapshotCached"].get<bool>(),
+         "delayed first step remains an uncached warmup sample");
+  const auto delayed_stable = engine.test_performance_window(1.020, 1.010, 505);
+  expect(delayed_stable["stableSnapshotCached"].get<bool>() &&
+             delayed_stable["performance"]["physicsFrequencyHz"].get<double>() > 490.0 &&
+             delayed_stable["performance"]["realTimeFactor"].get<double>() > 0.98,
+         "10ms cold start does not contaminate stable window");
+
+  expect(engine.reset().ok, "reset before 44hz regression reproduction");
+  const auto old_44hz_sample = engine.test_performance_window(1.0 / 44.0, 0.002, 1);
+  expect(!old_44hz_sample["stableSnapshotCached"].get<bool>() &&
+             old_44hz_sample["performance"]["physicsFrequencyHz"].get<double>() > 43.0 &&
+             old_44hz_sample["performance"]["physicsFrequencyHz"].get<double>() < 45.0 &&
+             old_44hz_sample["performance"]["realTimeFactor"].get<double>() < 0.1,
+         "past 44hz cold snapshot reproduced as warmup only");
+  const auto recovered_warmup = engine.test_performance_window(0.500, 0.500, 250);
+  expect(!recovered_warmup["stableSnapshotCached"].get<bool>() &&
+             recovered_warmup["performance"]["physicsFrequencyHz"].get<double>() > 499.0 &&
+             recovered_warmup["performance"]["realTimeFactor"].get<double>() > 0.99,
+         "44hz warmup value is not frozen");
+  const auto recovered_stable = engine.test_performance_window(1.050, 1.050, 525);
+  expect(recovered_stable["stableSnapshotCached"].get<bool>() &&
+             recovered_stable["performance"]["physicsFrequencyHz"].get<double>() > 499.0 &&
+             recovered_stable["performance"]["realTimeFactor"].get<double>() > 0.99,
+         "44hz regression converges to stable target");
+  expect(engine.load_model("minimal-quadruped-v1").ok &&
+             !engine.test_has_stable_performance_snapshot(),
+         "model reload restarts performance warmup");
   const Json initial = engine.latest_pose();
   expect(finite_pose(initial), "initial pose finite");
   expect(initial["joints"].size() == 12, "pose joint count");

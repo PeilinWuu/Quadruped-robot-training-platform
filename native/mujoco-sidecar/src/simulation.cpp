@@ -28,6 +28,7 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 constexpr double kTimestep = 0.002;
 constexpr double kPosePeriod = 1.0 / 60.0;
+constexpr double kMinimumPerformanceWindowSeconds = 1.0;
 constexpr int kMaximumCatchupSteps = 10;
 constexpr double kContactThresholdNewton = 0.01;
 constexpr double kFallDebounceSeconds = 0.2;
@@ -702,6 +703,33 @@ Json SimulationEngine::test_static_mpc_diagnostics() const {
     {"collision", latest_collision_}};
 }
 
+Json SimulationEngine::test_performance_window(const double wall_elapsed_seconds,
+                                                const double simulation_elapsed_seconds,
+                                                const std::uint64_t physics_steps) {
+  std::lock_guard lock(mutex_);
+  const auto now = Clock::now();
+  stats_started_at_ = now - std::chrono::duration_cast<Clock::duration>(
+      std::chrono::duration<double>(wall_elapsed_seconds));
+  stats_simulation_started_ = 0.0;
+  physics_steps_ = physics_steps;
+  control_steps_ = physics_steps / 5U;
+  pose_publishes_ = static_cast<std::uint64_t>(wall_elapsed_seconds * 60.0);
+  telemetry_publishes_ = static_cast<std::uint64_t>(wall_elapsed_seconds * 50.0);
+  dropped_pose_events_ = dropped_telemetry_events_ = catch_up_steps_ = 0;
+  physics_step_total_ms_ = static_cast<double>(physics_steps) * 0.1;
+  physics_step_max_ms_ = physics_steps ? 0.1 : 0.0;
+  control_step_total_ms_ = static_cast<double>(control_steps_) * 0.5;
+  control_step_max_ms_ = control_steps_ ? 0.5 : 0.0;
+  const Json performance = performance_locked(now, simulation_elapsed_seconds, true);
+  return Json{{"performance", performance},
+              {"stableSnapshotCached", !performance_snapshot_.is_null()}};
+}
+
+bool SimulationEngine::test_has_stable_performance_snapshot() const {
+  std::lock_guard lock(mutex_);
+  return !performance_snapshot_.is_null();
+}
+
 bool SimulationEngine::test_set_root_state(const std::array<double, 3>& position,
                                            const std::array<double, 4>& quaternion_wxyz) {
   std::lock_guard lock(mutex_);
@@ -950,31 +978,8 @@ Json SimulationEngine::telemetry_locked(const bool advance_sequence, const bool)
       {"forceWorld", vector3(foot_forces[index])}, {"positionWorld", vector3(position)}});
   }
 
-  const auto performance_now = Clock::now();
-  const double elapsed = std::max(1e-9, std::chrono::duration<double>(performance_now - stats_started_at_).count());
-  const bool active = state_ == SimulationState::running;
-  const double real_time_factor = active ? std::max(0.0, (data_->time - stats_simulation_started_) / elapsed) : 0.0;
-  Json current_performance{{"physicsFrequencyHz", physics_steps_ / elapsed},
-                   {"controlFrequencyHz", control_steps_ / elapsed},
-                   {"posePublishFrequencyHz", pose_publishes_ / elapsed},
-                   {"telemetryPublishFrequencyHz", telemetry_publishes_ / elapsed},
-                   {"realTimeFactor", real_time_factor},
-                   {"physicsStepMeanMs", physics_steps_ ? physics_step_total_ms_ / physics_steps_ : 0.0},
-                   {"physicsStepMaxMs", physics_step_max_ms_},
-                   {"controlStepMeanMs", control_steps_ ? control_step_total_ms_ / control_steps_ : 0.0},
-                   {"controlStepMaxMs", control_step_max_ms_},
-                   {"droppedPoseEvents", dropped_pose_events_},
-                   {"droppedTelemetryEvents", dropped_telemetry_events_},
-                   {"catchUpStepCount", catch_up_steps_}};
-  if (performance_snapshot_.is_null() || elapsed >= 1.0) performance_snapshot_ = current_performance;
-  Json performance = performance_snapshot_;
-  if (elapsed >= 1.0) {
-    stats_started_at_ = performance_now;
-    stats_simulation_started_ = data_->time;
-    physics_steps_ = control_steps_ = pose_publishes_ = telemetry_publishes_ = 0;
-    physics_step_total_ms_ = physics_step_max_ms_ = 0.0;
-    control_step_total_ms_ = control_step_max_ms_ = 0.0;
-  }
+  Json performance = performance_locked(Clock::now(), data_->time,
+                                        state_ == SimulationState::running);
   return Json{{"sequence", telemetry_sequence_}, {"simulationTime", data_->time},
     {"wallTime", unix_milliseconds()}, {"modelId", model_id_},
     {"source", Json{{"kind", "mujoco-simulation"}, {"connectedToPhysicalRobot", false}}},
@@ -990,6 +995,39 @@ Json SimulationEngine::telemetry_locked(const bool advance_sequence, const bool)
     {"collision", latest_collision_.is_null() ? collision_telemetry_locked() : latest_collision_},
     {"command", motion_status_locked()}, {"locomotion", locomotion_telemetry_locked()},
     {"performance", std::move(performance)}};
+}
+
+Json SimulationEngine::performance_locked(const Clock::time_point now,
+                                          const double simulation_time,
+                                          const bool active) {
+  const double elapsed = std::max(
+      1e-9, std::chrono::duration<double>(now - stats_started_at_).count());
+  const double real_time_factor = active
+      ? std::max(0.0, (simulation_time - stats_simulation_started_) / elapsed)
+      : 0.0;
+  Json current_performance{{"physicsFrequencyHz", physics_steps_ / elapsed},
+                   {"controlFrequencyHz", control_steps_ / elapsed},
+                   {"posePublishFrequencyHz", pose_publishes_ / elapsed},
+                   {"telemetryPublishFrequencyHz", telemetry_publishes_ / elapsed},
+                   {"realTimeFactor", real_time_factor},
+                   {"physicsStepMeanMs", physics_steps_ ? physics_step_total_ms_ / physics_steps_ : 0.0},
+                   {"physicsStepMaxMs", physics_step_max_ms_},
+                   {"controlStepMeanMs", control_steps_ ? control_step_total_ms_ / control_steps_ : 0.0},
+                   {"controlStepMaxMs", control_step_max_ms_},
+                   {"droppedPoseEvents", dropped_pose_events_},
+                   {"droppedTelemetryEvents", dropped_telemetry_events_},
+                   {"catchUpStepCount", catch_up_steps_}};
+  // During the initial warmup, expose the growing window without treating it as stable.
+  // After the first complete window, retain the last stable sample until the next refresh.
+  if (elapsed >= kMinimumPerformanceWindowSeconds) {
+    performance_snapshot_ = current_performance;
+    stats_started_at_ = now;
+    stats_simulation_started_ = simulation_time;
+    physics_steps_ = control_steps_ = pose_publishes_ = telemetry_publishes_ = 0;
+    physics_step_total_ms_ = physics_step_max_ms_ = 0.0;
+    control_step_total_ms_ = control_step_max_ms_ = 0.0;
+  }
+  return performance_snapshot_.is_null() ? current_performance : performance_snapshot_;
 }
 
 void SimulationEngine::clear_motion_locked() {
