@@ -1283,6 +1283,29 @@ mod telemetry_tests {
     }
 
     #[test]
+    fn ten_consecutive_fault_telemetry_frames_are_strictly_accepted() {
+        for sequence in 1..=10_u32 {
+            let mut value = telemetry();
+            value.sequence = sequence;
+            value.locomotion.state = LocomotionState::Fault;
+            value.locomotion.fault_reason = Some("fall-detected".into());
+            value.locomotion.commanded_forward_velocity = 0.0;
+            value.locomotion.filtered_forward_velocity = 0.0;
+            value.locomotion.commanded_yaw_rate = 0.0;
+            value.locomotion.filtered_yaw_rate = 0.0;
+            let frame = json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "requestId": null,
+                "type": "telemetry",
+                "timestamp": 1_700_000_000_000_i64 + i64::from(sequence),
+                "payload": value,
+            });
+            let parsed = parse_response_line(&serde_json::to_vec(&frame).unwrap()).unwrap();
+            assert!(matches!(parsed.response, ProtocolResponse::Telemetry(_)));
+        }
+    }
+
+    #[test]
     fn locomotion_unknown_controller_state_and_negative_counter_are_rejected() {
         let mut json = serde_json::to_value(telemetry()).unwrap();
         json["locomotion"]["controllerId"] = json!("unknown");

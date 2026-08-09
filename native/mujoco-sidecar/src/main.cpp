@@ -58,6 +58,10 @@ class StdoutWriter {
 
 int main(int argc, char** argv) {
   std::ios::sync_with_stdio(false);
+  // stdin is consumed on the protocol thread while stdout is owned by StdoutWriter.
+  // The default cin->cout tie would otherwise flush cout from the reader thread and
+  // split or concatenate NDJSON frames while the writer thread is composing them.
+  std::cin.tie(nullptr);
   if (argc != 3 || std::string(argv[1]) != "--resource-root") { std::cerr << "A validated resource root is required.\n"; return 2; }
   std::error_code ec;
   const auto root = std::filesystem::canonical(argv[2], ec);

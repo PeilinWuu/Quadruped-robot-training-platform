@@ -1,5 +1,6 @@
 import { App as AntApp, ConfigProvider, message, Spin, theme } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { Header } from './components/Header'
 import { SceneSidebar } from './components/SceneSidebar'
 import { SimulationView } from './components/SimulationView'
@@ -16,7 +17,14 @@ import './App.css'
 
 function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [messageApi, holder] = message.useMessage()
-  const { initialize, initializeSimulation, refreshSimulation, shutdownSimulation, tick, appendMetrics } = useAppStore()
+  const { initialize, initializeSimulation, refreshSimulation, shutdownSimulation, tick, appendMetrics } = useAppStore(useShallow((state) => ({
+    initialize: state.initialize,
+    initializeSimulation: state.initializeSimulation,
+    refreshSimulation: state.refreshSimulation,
+    shutdownSimulation: state.shutdownSimulation,
+    tick: state.tick,
+    appendMetrics: state.appendMetrics,
+  })))
   const notify = useCallback((text: string) => void messageApi.info(text), [messageApi])
   useEffect(() => { void initialize().catch((error: unknown) => messageApi.error(error instanceof Error ? error.message : '数据初始化失败')) }, [initialize, messageApi])
   useEffect(() => {

@@ -3,6 +3,7 @@
 #include "controllers/mpc/convex_mpc.hpp"
 #include "controllers/mpc/foothold_planner.hpp"
 #include "controllers/mpc/gait_generator.hpp"
+#include "controllers/mpc/go2_convex_mpc_controller.hpp"
 #include "controllers/mpc/leg_controller.hpp"
 #include "controllers/mpc/mujoco_state_provider.hpp"
 #include "controllers/mpc/qp_solver.hpp"
@@ -102,6 +103,53 @@ int main() {
     expect(state.foot_position_world[leg].z() >= 0.0 && state.foot_jacobian_world[leg].array().isFinite().all(),
            "foot position and Jacobian finite");
   }
+
+  const std::vector<double> home_positions(state.joint_position.data(),
+                                            state.joint_position.data() + kJointCount);
+  auto controller_for_fault = [&]() {
+    auto controller = std::make_unique<Go2ConvexMpcController>();
+    std::string controller_error;
+    expect(controller->initialize(state, home_positions, controller_error),
+           "fault fixture controller initializes");
+    return controller;
+  };
+  auto expect_state_fault = [&](const Go2ConvexMpcController& controller,
+                                const std::string& reason, const char* name) {
+    const auto& telemetry = controller.telemetry();
+    expect(telemetry.state == ControllerState::fault &&
+               telemetry.fault_reason == reason &&
+               telemetry.commanded_forward_velocity == 0.0 &&
+               telemetry.commanded_yaw_rate == 0.0,
+           name);
+  };
+  auto update_fault = [&](RobotState fault_state, const std::string& reason,
+                          const char* name) {
+    auto controller = controller_for_fault();
+    std::array<LowLevelJointCommand, kJointCount> commands{};
+    std::string controller_error;
+    expect(!controller->update(fault_state, MotionTarget{0.12, 0.24, 0.3, true}, true,
+                               commands, controller_error), name);
+    expect_state_fault(*controller, reason, name);
+  };
+  RobotState fallen_state = state;
+  fallen_state.fallen = true;
+  update_fault(fallen_state, "fall-detected", "forced fall telemetry fault is consistent");
+  RobotState out_of_bounds_state = state;
+  out_of_bounds_state.out_of_bounds = true;
+  update_fault(out_of_bounds_state, "out-of-bounds",
+               "forced out-of-bounds telemetry fault is consistent");
+  RobotState non_foot_state = state;
+  non_foot_state.non_foot_collision = true;
+  update_fault(non_foot_state, "non-foot-contact",
+               "forced non-foot collision telemetry fault is consistent");
+  auto qp_fault = controller_for_fault();
+  qp_fault->test_force_consecutive_qp_failure();
+  expect_state_fault(*qp_fault, "mpc-primal_infeasible",
+                     "forced consecutive QP failure telemetry fault is consistent");
+  auto non_finite_fault = controller_for_fault();
+  non_finite_fault->test_force_non_finite_low_level_command();
+  expect_state_fault(*non_finite_fault, "non-finite-low-level-command",
+                     "forced non-finite low-level telemetry fault is consistent");
 
   GaitGenerator gait;
   gait.reset(state.simulation_time);

@@ -23,6 +23,10 @@ class Go2ConvexMpcController final : public LocomotionController {
               std::string& error) override;
   void reset(const RobotState& state) override;
   void force_fault(const std::string& reason);
+#ifdef SIDECAR_TESTING
+  void test_force_consecutive_qp_failure();
+  void test_force_non_finite_low_level_command();
+#endif
   [[nodiscard]] const ControllerTelemetry& telemetry() const noexcept override { return telemetry_; }
   [[nodiscard]] double gait_frequency_hz() const noexcept { return gait_.frequency_hz(); }
   [[nodiscard]] double duty_factor() const noexcept { return gait_.duty_factor(); }
@@ -32,6 +36,8 @@ class Go2ConvexMpcController final : public LocomotionController {
   ContactHorizon expected_horizon(const RobotState& state) const;
   void start_swings(const RobotState& state, const MotionTarget& filtered,
                     const ContactVector& contacts);
+  void transition_to_fault(const std::string& reason);
+  void finalize_telemetry();
 
   ConvexMpc mpc_;
   GaitGenerator gait_{};

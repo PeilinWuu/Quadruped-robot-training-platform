@@ -7,6 +7,7 @@ use super::{
         SimulationState, TelemetryConfig,
     },
 };
+use crate::input::NativeKeyboardController;
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 
 async fn run_blocking<T, F>(operation: F) -> Result<T, SimulationError>
@@ -47,7 +48,9 @@ pub async fn simulation_sidecar_ping(
 #[tauri::command]
 pub async fn simulation_sidecar_stop(
     manager: State<'_, SimulationManager>,
+    keyboard: State<'_, NativeKeyboardController>,
 ) -> Result<SimulationStatus, SimulationError> {
+    keyboard.disarm();
     let manager = manager.inner().clone();
     run_blocking(move || manager.stop()).await
 }
@@ -57,7 +60,9 @@ pub async fn simulation_load_model(
     model_id: String,
     environment_id: Option<String>,
     manager: State<'_, SimulationManager>,
+    keyboard: State<'_, NativeKeyboardController>,
 ) -> Result<ModelLoadedPayload, SimulationError> {
+    keyboard.disarm();
     let environment = match environment_id.as_deref().unwrap_or("flat-ground-v1") {
         "flat-ground-v1" => EnvironmentId::FlatGroundV1,
         _ => {
@@ -132,14 +137,20 @@ pub async fn simulation_run_step(
 #[tauri::command]
 pub async fn simulation_run_reset(
     manager: State<'_, SimulationManager>,
+    keyboard: State<'_, NativeKeyboardController>,
 ) -> Result<SimulationState, SimulationError> {
+    keyboard.prepare_reset();
     let manager = manager.inner().clone();
-    run_blocking(move || manager.run_reset()).await
+    let result = run_blocking(move || manager.run_reset()).await;
+    keyboard.finish_reset();
+    result
 }
 #[tauri::command]
 pub async fn simulation_run_stop(
     manager: State<'_, SimulationManager>,
+    keyboard: State<'_, NativeKeyboardController>,
 ) -> Result<SimulationState, SimulationError> {
+    keyboard.disarm();
     let manager = manager.inner().clone();
     run_blocking(move || manager.run_stop()).await
 }

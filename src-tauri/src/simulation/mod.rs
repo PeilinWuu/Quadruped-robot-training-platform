@@ -2,7 +2,7 @@ pub mod commands;
 mod error;
 mod manager;
 mod process;
-mod protocol;
+pub(crate) mod protocol;
 
 pub use manager::SimulationManager;
 

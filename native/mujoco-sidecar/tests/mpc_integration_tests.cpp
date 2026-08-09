@@ -21,6 +21,21 @@ void expect(const bool value, const char* name) {
 int main() {
   sidecar::SimulationEngine engine(TEST_RESOURCE_ROOT, [](Json) {});
   expect(engine.load_model("unitree-go2-menagerie").ok, "integration Go2 loads");
+  expect(engine.reset().ok, "standing reset");
+  for (int second = 0; second < 10; ++second) {
+    expect(engine.step(500).ok, "standing advances one second");
+  }
+  const Json standing = engine.test_static_mpc_diagnostics();
+  std::cout << "D6_LINUX_STANDING_10S=" << standing << '\n';
+  expect(standing["controllerState"] == "standing", "standing remains standing");
+  expect(!standing["collision"]["isFallen"].get<bool>() &&
+             standing["collision"]["torsoContacts"].get<int>() == 0 &&
+             standing["collision"]["headContacts"].get<int>() == 0,
+         "standing no fall torso or head contact");
+  expect(standing["actuatorSaturationCount"].get<std::uint64_t>() == 0,
+         "standing has no actuator saturation");
+  expect(standing["qpFailureCount"].get<std::uint64_t>() == 0,
+         "standing has no QP failure");
   for (int repeat = 0; repeat < 3; ++repeat) {
     expect(engine.reset().ok, "trot repeat reset");
     sidecar::MotionCommand trot{static_cast<std::uint32_t>(1000 + repeat * 1000),

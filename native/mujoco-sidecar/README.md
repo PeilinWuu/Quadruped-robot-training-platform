@@ -1,6 +1,6 @@
 # Quadruped simulation sidecar
 
-This Windows x64 C++17 executable is the native simulation and locomotion process used by the Tauri desktop application. It is no longer a protocol-only test stub.
+This Windows/Linux x86_64 C++17 executable is the native simulation and locomotion process used by the Tauri desktop application. It is no longer a protocol-only test stub.
 
 The sidecar currently provides:
 
@@ -42,20 +42,21 @@ Versions, source URLs and SHA-256 hashes are recorded in `mujoco.lock.json`, `mp
 
 ## Build and test
 
-Run from the repository root on Windows x64 with Visual Studio 2022 C++ Build Tools and CMake installed:
+Run from the repository root on Windows x64 (Visual Studio 2022) or Ubuntu Linux x86_64 (GCC and Ninja):
 
 ```bash
 npm run setup:mpc
+npm run setup:mujoco
 npm run build:sidecar
 ```
 
 The build script:
 
 1. verifies the committed Go2 Menagerie resources;
-2. downloads and verifies pinned MuJoCo when the local cache is absent;
+2. requires the platform-specific, pinned MuJoCo cache prepared by `setup:mujoco`;
 3. requires verified Eigen, OSQP and QDLDL caches;
 4. configures and builds the Release targets with CMake;
 5. runs CTest protocol, MPC core, integration and acceptance suites;
-6. copies only the required executable, MuJoCo DLL, models and licenses into fixed Tauri resource directories.
+6. copies only the current platform executable, MuJoCo runtime, models and licenses into fixed Tauri resource directories.
 
-Generated caches and `native/mujoco-sidecar/build/` are intentionally ignored by Git.
+Generated caches, `native/mujoco-sidecar/build/` and `native/mujoco-sidecar/build-linux/` are intentionally ignored by Git. Normal builds never download dependencies.

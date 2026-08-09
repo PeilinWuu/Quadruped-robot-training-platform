@@ -36,6 +36,12 @@ const STATUS_SAMPLE_INTERVAL_MS = 750
 const DEFAULT_TARGET = new Vec3(0, 0, 0)
 const DEFAULT_DISTANCE = 3
 
+export function resolveVisualMaxFps(userAgent: string, configured?: string): 30 | 45 | 60 {
+  const requested = Number(configured)
+  if (requested === 30 || requested === 45 || requested === 60) return requested
+  return /Linux/i.test(userAgent) ? 30 : 60
+}
+
 class SceneLoadError extends Error {
   readonly code: string
 
@@ -107,6 +113,17 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private disposed = false
   private activeRendering = false
   private lastStatusSampleAt = 0
+  private renderSampleStartedAt = 0
+  private renderedFrames = 0
+  private renderPending = false
+  private pendingRobotPose: RobotPose | null = null
+  private pendingRobotPoseImmediate = false
+  private nextVisualFrameAt = 0
+  private readonly followTarget = new Vec3()
+  private readonly visualFrameIntervalMs = 1_000 / resolveVisualMaxFps(
+    typeof navigator === 'undefined' ? '' : navigator.userAgent,
+    import.meta.env.VITE_VISUAL_MAX_FPS,
+  )
   private initialTarget = DEFAULT_TARGET.clone()
   private initialDistance = DEFAULT_DISTANCE
   private status: ViewerRuntimeStatus = {
@@ -229,8 +246,9 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     const app = this.app
     if (this.disposed || !app) return
     this.activeRendering = true
-    app.autoRender = true
-    app.renderNextFrame = true
+    app.autoRender = false
+    this.nextVisualFrameAt = 0
+    this.requestRender()
     this.status = { ...this.status, running: true }
     this.updateControlsEnabled()
     this.emitStatus()
@@ -260,18 +278,28 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   updateRobotPose(pose: RobotPose, immediate = false): boolean {
-    const accepted = this.robotOverlay?.updatePose(pose, immediate) ?? false
+    if (!this.robotOverlay || this.disposed) return false
+    if (!immediate) {
+      this.pendingRobotPose = pose
+      this.pendingRobotPoseImmediate = false
+      return true
+    }
+    this.pendingRobotPose = null
+    this.pendingRobotPoseImmediate = false
+    const accepted = this.robotOverlay.updatePose(pose, true)
     if (accepted) {
       if (this.followRobot && this.cameraController) {
-        this.cameraController.followTarget(new Vec3(...pose.rootPosition))
+        this.followTarget.set(...pose.rootPosition)
+        this.cameraController.followTarget(this.followTarget)
       }
-      this.updateControlsEnabled()
       this.requestRender()
     }
     return accepted
   }
 
   clearRobotPose(): void {
+    this.pendingRobotPose = null
+    this.pendingRobotPoseImmediate = false
     this.robotOverlay?.clearPose()
     this.requestRender()
   }
@@ -432,6 +460,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     if (this.disposed) return
     this.disposed = true
     this.activeRendering = false
+    this.pendingRobotPose = null
     ++this.loadGeneration
     this.cancelPendingParse?.()
     this.cancelPendingParse = null
@@ -698,20 +727,32 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   private readonly requestRender = (): void => {
-    if (!this.app || this.disposed) return
+    if (!this.app || this.disposed || !this.activeRendering) return
     this.app.renderNextFrame = true
+    this.renderPending = true
   }
 
   private readonly handleFrameRequest = (): void => {
-    if (this.activeRendering) this.requestRender()
+    // The gsplat sorter can request frames before a splat scene exists. Honouring
+    // those requests creates a permanent idle render loop in WebKitGTK.
+    if (this.activeRendering && this.status.sceneLoaded) this.requestRender()
   }
 
   private readonly handleFrameEnd = (): void => {
     if (!this.app || this.disposed) return
     const now = performance.now()
+    if (this.renderPending) {
+      this.renderPending = false
+      this.renderedFrames += 1
+    }
     if (now - this.lastStatusSampleAt < STATUS_SAMPLE_INTERVAL_MS) return
     this.lastStatusSampleAt = now
-    const fps = this.activeRendering ? Math.round(this.app.stats.frame.fps) : 0
+    const sampleElapsed = now - this.renderSampleStartedAt
+    const fps = this.activeRendering && sampleElapsed > 0
+      ? Math.round(this.renderedFrames * 1_000 / sampleElapsed)
+      : 0
+    this.renderSampleStartedAt = now
+    this.renderedFrames = 0
     if (fps !== this.status.fps) {
       this.status = { ...this.status, fps }
       this.emitStatus()
@@ -720,6 +761,25 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   private readonly handleUpdate = (): void => {
     if (!this.activeRendering || this.status.contextLost) return
+    const now = performance.now()
+    if (this.pendingRobotPose && (this.nextVisualFrameAt === 0 || now >= this.nextVisualFrameAt)) {
+      const pose = this.pendingRobotPose
+      const immediate = this.pendingRobotPoseImmediate
+      this.pendingRobotPose = null
+      this.pendingRobotPoseImmediate = false
+      const accepted = this.robotOverlay?.updatePose(pose, immediate) ?? false
+      if (accepted) {
+        if (this.followRobot && this.cameraController) {
+          this.followTarget.set(...pose.rootPosition)
+          this.cameraController.followTarget(this.followTarget)
+        }
+        if (this.nextVisualFrameAt === 0 || now - this.nextVisualFrameAt > this.visualFrameIntervalMs) {
+          this.nextVisualFrameAt = now
+        }
+        this.nextVisualFrameAt += this.visualFrameIntervalMs
+        this.requestRender()
+      }
+    }
     this.robotOverlay?.update()
   }
 
@@ -750,7 +810,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     }
     this.robotOverlay?.setContextLost(false)
     this.environmentOverlay?.setContextLost(false)
-    this.app.autoRender = this.activeRendering
+    this.app.autoRender = false
     this.updateControlsEnabled()
     this.requestRender()
     this.emitStatus()

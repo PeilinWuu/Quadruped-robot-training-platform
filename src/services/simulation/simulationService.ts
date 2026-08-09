@@ -37,6 +37,24 @@ export function getSimulationAdapter(): Promise<SimulationAdapter> {
 type AdapterLoader = () => Promise<SimulationAdapter>
 type PoseListener = (pose: RobotPose) => void
 type CollisionListener = (event: CollisionEvent) => void
+type MotionWaiter = {
+  resolve: (status: MotionCommandStatus) => void
+  reject: (error: unknown) => void
+}
+type DesiredMotionOperation = {
+  command: MotionCommand | null
+  waiters: MotionWaiter[]
+}
+
+export interface MotionDispatchDiagnostics {
+  requested: number
+  dispatched: number
+  completed: number
+  coalesced: number
+  inFlight: number
+  maxInFlight: number
+  lastInvokeLatencyMs: number
+}
 
 export class ManagedSimulationService {
   private readonly loadAdapter: AdapterLoader
@@ -50,6 +68,12 @@ export class ManagedSimulationService {
   private readonly eventListeners = new Set<SimulationListener>()
   private readonly collisionListeners = new Set<CollisionListener>()
   private queue: Promise<void> = Promise.resolve()
+  private desiredMotion: DesiredMotionOperation | null = null
+  private motionInFlight = false
+  private readonly motionDiagnostics: MotionDispatchDiagnostics = {
+    requested: 0, dispatched: 0, completed: 0, coalesced: 0,
+    inFlight: 0, maxInFlight: 0, lastInvokeLatencyMs: 0,
+  }
 
   constructor(loadAdapter: AdapterLoader = getSimulationAdapter) {
     this.loadAdapter = loadAdapter
@@ -58,6 +82,7 @@ export class ManagedSimulationService {
   get desktop(): boolean { return simulationDesktopSupported() }
   getBufferedPose(): RobotPose | null { return this.latestPose }
   getBufferedTelemetry(): RobotTelemetry | null { return this.telemetry.getLatest() }
+  getMotionDispatchDiagnostics(): MotionDispatchDiagnostics { return { ...this.motionDiagnostics } }
   listAvailableModels(): readonly SimulationModelDescription[] { return SIMULATION_MODELS }
   listAvailableEnvironments(): Promise<EnvironmentMetadata[]> { return this.withAdapter((adapter) => adapter.listAvailableEnvironments()) }
   getCurrentEnvironment(): Promise<EnvironmentMetadata | null> { return this.withAdapter((adapter) => adapter.getCurrentEnvironment()) }
@@ -104,10 +129,10 @@ export class ManagedSimulationService {
   }
 
   setMotionCommand(command: MotionCommand): Promise<MotionCommandStatus> {
-    return this.serial(async () => (await this.adapterForUse()).setMotionCommand(command))
+    return this.enqueueMotion(command)
   }
   clearMotionCommand(): Promise<MotionCommandStatus> {
-    return this.serial(async () => (await this.adapterForUse()).clearMotionCommand())
+    return this.enqueueMotion(null)
   }
   setTelemetryRate(rateHz: number): Promise<TelemetryConfig> {
     if (!Number.isInteger(rateHz) || rateHz < 10 || rateHz > 100) {
@@ -228,6 +253,43 @@ export class ManagedSimulationService {
     const result = this.queue.then(operation, operation)
     this.queue = result.then(() => undefined, () => undefined)
     return result
+  }
+  private enqueueMotion(command: MotionCommand | null): Promise<MotionCommandStatus> {
+    this.motionDiagnostics.requested += 1
+    return new Promise((resolve, reject) => {
+      const waiters = this.desiredMotion?.waiters ?? []
+      if (this.desiredMotion) this.motionDiagnostics.coalesced += 1
+      waiters.push({ resolve, reject })
+      this.desiredMotion = { command, waiters }
+      this.drainMotion()
+    })
+  }
+  private drainMotion(): void {
+    if (this.motionInFlight || !this.desiredMotion) return
+    const desired = this.desiredMotion
+    this.desiredMotion = null
+    this.motionInFlight = true
+    this.motionDiagnostics.dispatched += 1
+    this.motionDiagnostics.inFlight = 1
+    this.motionDiagnostics.maxInFlight = Math.max(this.motionDiagnostics.maxInFlight, 1)
+    const startedAt = performance.now()
+    void this.adapterForUse()
+      .then((adapter) => desired.command
+        ? adapter.setMotionCommand(desired.command)
+        : adapter.clearMotionCommand())
+      .then(
+        (status) => {
+          this.motionDiagnostics.completed += 1
+          desired.waiters.forEach((waiter) => waiter.resolve(status))
+        },
+        (error) => desired.waiters.forEach((waiter) => waiter.reject(error)),
+      )
+      .finally(() => {
+        this.motionDiagnostics.lastInvokeLatencyMs = performance.now() - startedAt
+        this.motionDiagnostics.inFlight = 0
+        this.motionInFlight = false
+        this.drainMotion()
+      })
   }
   private async ensureSubscription(adapter: SimulationAdapter): Promise<void> {
     if (this.subscription) return

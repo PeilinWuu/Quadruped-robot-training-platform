@@ -2,13 +2,30 @@ import type { MotionCommand } from './types'
 
 export type DemoSpeed = 'low' | 'medium'
 export interface KeyboardLocomotionState {
-  enabled: boolean; stopReason: string | null; speed: DemoSpeed
+  enabled: boolean; resetting: boolean; stopReason: string | null; speed: DemoSpeed
   forwardVelocity: number; yawRate: number
 }
 export interface KeyboardLocomotionTransport {
   setMotionCommand(command: MotionCommand): Promise<unknown>
   clearMotionCommand(): Promise<unknown>
   reset(): Promise<unknown>
+}
+
+export interface KeyboardLocomotionDiagnostics {
+  requested: number
+  dispatched: number
+  completed: number
+  coalesced: number
+  rejected: number
+  inFlight: number
+  maxInFlight: number
+  lastInvokeLatencyMs: number
+}
+
+type DesiredMotion = {
+  generation: number
+  version: number
+  command: MotionCommand | null
 }
 
 const LOW = { forward: .12, reverse: -.08, yaw: .24 }
@@ -42,12 +59,21 @@ export class KeyboardLocomotionController {
   private enabled = false
   private disposed = false
   private resetting = false
+  private generation = 0
+  private desiredVersion = 0
+  private desired: DesiredMotion | null = null
+  private inFlight = false
+  private inFlightSettled: Promise<void> | null = null
   private speed: DemoSpeed = 'low'
   private stopReason: string | null = null
   private readonly transport: KeyboardLocomotionTransport
   private readonly onState: (state: KeyboardLocomotionState) => void
   private readonly hostWindow: Window
   private readonly hostDocument: Document
+  private readonly diagnostics: KeyboardLocomotionDiagnostics = {
+    requested: 0, dispatched: 0, completed: 0, coalesced: 0, rejected: 0,
+    inFlight: 0, maxInFlight: 0, lastInvokeLatencyMs: 0,
+  }
 
   constructor(
     transport: KeyboardLocomotionTransport,
@@ -60,24 +86,27 @@ export class KeyboardLocomotionController {
   }
 
   isEnabled(): boolean { return this.enabled }
-  setSpeed(speed: DemoSpeed): void { this.speed = speed; this.publish(); if (this.enabled) void this.sendHeartbeat() }
+  getDiagnostics(): KeyboardLocomotionDiagnostics { return { ...this.diagnostics } }
+  setSpeed(speed: DemoSpeed): void { this.speed = speed; this.publish(); if (this.enabled) this.requestHeartbeat() }
 
   enable(): void {
     if (this.disposed || this.enabled) return
+    this.generation += 1
     this.enabled = true
     this.stopReason = null
     this.hostWindow.addEventListener('keydown', this.keyDown)
     this.hostWindow.addEventListener('keyup', this.keyUp)
     this.hostWindow.addEventListener('blur', this.blur)
     this.hostDocument.addEventListener('visibilitychange', this.visibility)
-    this.timer = this.hostWindow.setInterval(() => void this.sendHeartbeat(), 50)
+    this.timer = this.hostWindow.setInterval(this.requestHeartbeat, 50)
     this.publish()
-    void this.sendHeartbeat()
+    this.requestHeartbeat()
   }
 
   disable(reason = '已解除键盘控制'): void {
     if (!this.enabled) { this.stopReason = reason; this.publish(); return }
     this.enabled = false
+    this.generation += 1
     this.stopReason = reason
     this.pressed.clear()
     if (this.timer !== null) this.hostWindow.clearInterval(this.timer)
@@ -86,11 +115,15 @@ export class KeyboardLocomotionController {
     this.hostWindow.removeEventListener('keyup', this.keyUp)
     this.hostWindow.removeEventListener('blur', this.blur)
     this.hostDocument.removeEventListener('visibilitychange', this.visibility)
-    void this.transport.clearMotionCommand().catch(() => undefined)
+    this.requestClear()
     this.publish()
   }
 
-  dispose(): void { if (!this.disposed) { this.disable('控制器已清理'); this.disposed = true } }
+  dispose(): void {
+    if (this.disposed) return
+    this.disable('控制器已清理')
+    this.disposed = true
+  }
 
   private target(): { forwardVelocity: number; yawRate: number } {
     const values = this.speed === 'low' ? LOW : MEDIUM
@@ -102,26 +135,73 @@ export class KeyboardLocomotionController {
       yawRate: left === right ? 0 : (left ? values.yaw : -values.yaw) }
   }
 
-  private async sendHeartbeat(): Promise<void> {
+  private readonly requestHeartbeat = (): void => {
     if (!this.enabled || this.disposed || this.resetting) return
     const target = this.target()
     const command: MotionCommand = { sequence: this.sequence++, mode: 'locomotion',
       forwardVelocity: target.forwardVelocity, lateralVelocity: 0, yawRate: target.yawRate,
       bodyHeight: .3, validForMs: 250 }
-    this.publish()
-    try { await this.transport.setMotionCommand(command) } catch { this.disable('命令发送失败，已自动停止') }
+    this.setDesired(command)
+  }
+
+  private requestClear(): void { this.setDesired(null) }
+
+  private setDesired(command: MotionCommand | null): void {
+    this.diagnostics.requested += 1
+    if (this.desired) this.diagnostics.coalesced += 1
+    this.desired = {
+      generation: this.generation,
+      version: ++this.desiredVersion,
+      command,
+    }
+    this.drainDesired()
+  }
+
+  private drainDesired(): void {
+    if (this.inFlight || !this.desired) return
+    const desired = this.desired
+    this.desired = null
+    this.inFlight = true
+    this.diagnostics.dispatched += 1
+    this.diagnostics.inFlight = 1
+    this.diagnostics.maxInFlight = Math.max(this.diagnostics.maxInFlight, 1)
+    const startedAt = performance.now()
+    const invoke = desired.command
+      ? this.transport.setMotionCommand(desired.command)
+      : this.transport.clearMotionCommand()
+    const settled = invoke.then(
+      () => { this.diagnostics.completed += 1 },
+      () => {
+        this.diagnostics.rejected += 1
+        if (desired.generation === this.generation && this.enabled && !this.disposed) {
+          this.stopReason = '命令发送暂时失败，等待下一次心跳重试'
+          this.publish()
+        }
+      },
+    ).finally(() => {
+      this.diagnostics.lastInvokeLatencyMs = performance.now() - startedAt
+      this.diagnostics.inFlight = 0
+      this.inFlight = false
+      if (this.inFlightSettled === settled) this.inFlightSettled = null
+      this.drainDesired()
+    })
+    this.inFlightSettled = settled
   }
 
   private stopImmediately(reason: string): void {
     this.pressed.clear(); this.stopReason = reason; this.publish()
-    void this.transport.clearMotionCommand().catch(() => undefined)
+    this.generation += 1
+    this.requestClear()
   }
 
   private async resetRobot(): Promise<void> {
     if (this.resetting) return
     this.resetting = true
+    this.generation += 1
+    this.desired = null
     this.pressed.clear(); this.stopReason = '正在重置机器人'; this.publish()
     try {
+      while (this.inFlightSettled) await this.inFlightSettled
       await this.transport.clearMotionCommand()
       await this.transport.reset()
       this.stopReason = 'R 已重置到出生点'
@@ -145,15 +225,15 @@ export class KeyboardLocomotionController {
     if (!CONTROL_KEYS.has(code)) return
     event.preventDefault()
     if (event.repeat || this.pressed.has(code)) return
-    this.pressed.add(code); this.stopReason = null; this.publish(); void this.sendHeartbeat()
+    this.pressed.add(code); this.stopReason = null; this.publish(); this.requestHeartbeat()
   }
   private readonly keyUp = (event: KeyboardEvent): void => {
     const code = normalizedCode(event)
     if (!this.enabled || editableTarget(event.target) || !CONTROL_KEYS.has(code)) return
-    event.preventDefault(); this.pressed.delete(code); this.publish(); void this.sendHeartbeat()
+    event.preventDefault(); this.pressed.delete(code); this.publish(); this.requestHeartbeat()
   }
   private readonly blur = (): void => this.stopImmediately('窗口失焦，已自动停止')
   private readonly visibility = (): void => { if (this.hostDocument.hidden) this.stopImmediately('页面隐藏，已自动停止') }
   private publish(): void { const target = this.target(); this.onState({ enabled: this.enabled,
-    stopReason: this.stopReason, speed: this.speed, ...target }) }
+    resetting: this.resetting, stopReason: this.stopReason, speed: this.speed, ...target }) }
 }

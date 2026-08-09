@@ -1,15 +1,33 @@
 {
+  "schemaVersion": 2,
   "version": "3.11.0",
-  "platform": "windows",
-  "architecture": "x86_64",
-  "officialAssetUrl": "https://github.com/google-deepmind/mujoco/releases/download/3.11.0/mujoco-3.11.0-windows-x86_64.zip",
-  "sha256": "a9cf1ec47a81e5fc20018f9fe2b9313a2bf9ecd0f9e66d8427130b8e82e51922",
-  "assetSize": 21163299,
-  "requiredFiles": [
-    "include/mujoco/*.h",
-    "lib/mujoco.lib",
-    "bin/mujoco.dll",
-    "LICENSE"
-  ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "assets": {
+    "windows-x86_64": {
+      "officialAssetUrl": "https://github.com/google-deepmind/mujoco/releases/download/3.11.0/mujoco-3.11.0-windows-x86_64.zip",
+      "archive": "mujoco-3.11.0-windows-x86_64.zip",
+      "sourceRoot": ".",
+      "sha256": "a9cf1ec47a81e5fc20018f9fe2b9313a2bf9ecd0f9e66d8427130b8e82e51922",
+      "assetSize": 21163299,
+      "requiredFiles": [
+        "include/mujoco/*.h",
+        "lib/mujoco.lib",
+        "bin/mujoco.dll",
+        "LICENSE"
+      ]
+    },
+    "linux-x86_64": {
+      "officialAssetUrl": "https://github.com/google-deepmind/mujoco/releases/download/3.11.0/mujoco-3.11.0-linux-x86_64.tar.gz",
+      "archive": "mujoco-3.11.0-linux-x86_64.tar.gz",
+      "sourceRoot": "mujoco-3.11.0",
+      "sha256": "681a9353b296a06682e9e757d6d21ab7a0a5a5bdb218a1c05cb9a38536817c79",
+      "assetSize": 31685638,
+      "requiredFiles": [
+        "include/mujoco/*.h",
+        "lib/libmujoco.so",
+        "lib/libmujoco.so.3.11.0",
+        "LICENSE"
+      ]
+    }
+  }
 }

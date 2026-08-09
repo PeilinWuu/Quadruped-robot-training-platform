@@ -95,6 +95,19 @@ function statusPatch(status: SimulationStatus): Partial<SimulationUiState> {
   }
 }
 
+function motionDisplayChanged(current: MotionCommandStatus | null, next: MotionCommandStatus): boolean {
+  return !current
+    || current.mode !== next.mode
+    || current.forwardVelocity !== next.forwardVelocity
+    || current.lateralVelocity !== next.lateralVelocity
+    || current.yawRate !== next.yawRate
+    || current.bodyHeight !== next.bodyHeight
+    || current.timedOut !== next.timedOut
+    || current.appliedByController !== next.appliedByController
+    || current.bodyHeightApplied !== next.bodyHeightApplied
+    || current.controllerAvailability !== next.controllerAvailability
+}
+
 // 页面组件只读写 store；完整 60Hz Pose 由 simulationService 直接转发给 Viewer。
 export const useAppStore = create<AppState>((set, get) => {
   const runSimulationAction = async (
@@ -240,7 +253,10 @@ function handleSimulationEvent(event: SimulationEvent): void {
   } else if (event.type === 'error') {
     useAppStore.setState((state) => ({ simulation: { ...state.simulation, lastError: '仿真服务报告错误，请重试或重新启动仿真' } }))
   } else if (event.type === 'motion_command_changed') {
-    useAppStore.setState((state) => ({ simulation: { ...state.simulation, latestMotionCommand: event.payload } }))
+    const current = useAppStore.getState().simulation.latestMotionCommand
+    if (motionDisplayChanged(current, event.payload)) {
+      useAppStore.setState((state) => ({ simulation: { ...state.simulation, latestMotionCommand: event.payload } }))
+    }
   } else if (event.type === 'collision') {
     useAppStore.setState((state) => ({ simulation: { ...state.simulation, latestCollisionEvent: event.payload } }))
   }

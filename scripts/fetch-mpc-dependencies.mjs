@@ -13,7 +13,9 @@ const lock = JSON.parse(readFileSync(lockPath, 'utf8'))
 const cacheRoot = join(repositoryRoot, '.cache', 'mpc-dependencies')
 const maximumArchiveBytes = 16 * 1024 * 1024
 
-if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('D5V MPC dependencies require Windows x64')
+if (!['win32', 'linux'].includes(process.platform) || process.arch !== 'x64') {
+  throw new Error('D5V MPC dependencies require Windows or Linux x86_64')
+}
 if (lock.schemaVersion !== 1 || Object.keys(lock.dependencies).join(',') !== 'eigen,osqp,qdldl') {
   throw new Error('Unsupported MPC dependency lock metadata')
 }
@@ -94,13 +96,13 @@ async function ensureExtracted(name, metadata, archivePath) {
   if (existsSync(markerPath) && readFileSync(markerPath, 'utf8').trim() === metadata.sha256 && existsSync(expectedRoot)) {
     return expectedRoot
   }
-  const entries = run('tar.exe', ['-tf', archivePath]).split(/\r?\n/).filter(Boolean)
+  const entries = run('tar', ['-tf', archivePath]).split(/\r?\n/).filter(Boolean)
   if (entries.length === 0 || entries.some(entry => !safeEntry(entry))) throw new Error(`${name} archive contains an unsafe path`)
   const temporary = join(dependencyRoot, `source-${process.pid}.tmp`)
   rmSync(temporary, { recursive: true, force: true })
   mkdirSync(temporary, { recursive: true })
   try {
-    run('tar.exe', ['-xf', archivePath, '-C', temporary])
+    run('tar', ['-xf', archivePath, '-C', temporary])
     const extractedRoot = metadata.sourceRoot === '.' ? temporary : join(temporary, metadata.sourceRoot)
     const resolvedTemporary = resolve(temporary)
     const resolvedExtracted = resolve(extractedRoot)

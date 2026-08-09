@@ -163,10 +163,25 @@ int main() {
   expect(engine.test_set_root_state({0.0, 0.0, 0.10}, {0.7071067811865476, 0.7071067811865476, 0.0, 0.0}),
          "test fallen root state");
   engine.step(101);
-  const auto fallen = engine.get_latest_telemetry().payload["collision"];
+  const auto fault_telemetry = engine.get_latest_telemetry().payload;
+  const auto fallen = fault_telemetry["collision"];
   expect(fallen["isFallen"] && fallen["fallReason"] != "none", "debounced fall detected");
+  expect(fault_telemetry["locomotion"]["state"] == "fault" &&
+         fault_telemetry["locomotion"]["faultReason"] == "fall-detected",
+         "forced fall telemetry state and reason are consistent");
+  for (int frame = 0; frame < 10; ++frame) {
+    engine.step(1);
+    const auto sustained_fault = engine.get_latest_telemetry().payload["locomotion"];
+    expect(sustained_fault["state"] == "fault" &&
+           sustained_fault["faultReason"] == "fall-detected",
+           "sustained fault telemetry remains consistent");
+  }
   engine.reset();
-  expect(!engine.get_latest_telemetry().payload["collision"]["isFallen"], "reset clears fall");
+  const auto reset_telemetry = engine.get_latest_telemetry().payload;
+  expect(!reset_telemetry["collision"]["isFallen"] &&
+         reset_telemetry["locomotion"]["state"] == "standing" &&
+         reset_telemetry["locomotion"]["faultReason"].is_null(),
+         "reset clears fall and restores standing without sidecar restart");
   expect(finite_json_numbers(go2_telemetry) && go2_telemetry.dump().size() < sidecar::kMaxLineBytes, "Go2 telemetry finite and bounded");
   engine.reset();
   for (int second = 0; second < 10; ++second) expect(engine.step(500).ok, "static MPC stand second");

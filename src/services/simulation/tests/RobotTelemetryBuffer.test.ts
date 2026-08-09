@@ -36,12 +36,29 @@ describe('RobotTelemetryBuffer', () => {
     const buffer = new RobotTelemetryBuffer(100)
     const listener = vi.fn()
     buffer.subscribe(listener)
-    for (let sequence = 1; sequence <= 5; sequence += 1) buffer.update(telemetry(sequence))
+    buffer.update(telemetry(1))
+    listener.mockClear()
+    for (let sequence = 2; sequence <= 5; sequence += 1) buffer.update(telemetry(sequence))
     expect(buffer.getLatest()?.sequence).toBe(5)
     expect(listener).toHaveBeenCalledTimes(0)
     vi.advanceTimersByTime(100)
     expect(listener).toHaveBeenCalledTimes(1)
     expect(listener.mock.calls[0][0].sequence).toBe(5)
+  })
+
+  it('publishes safety transitions immediately without waiting for the summary tick', () => {
+    vi.useFakeTimers()
+    const buffer = new RobotTelemetryBuffer(100)
+    const listener = vi.fn()
+    buffer.subscribe(listener)
+    buffer.update(telemetry(1))
+    listener.mockClear()
+    const fault = telemetry(2)
+    fault.locomotion.state = 'fault'
+    fault.locomotion.faultReason = 'mpc-infeasible'
+    buffer.update(fault)
+    expect(listener).toHaveBeenCalledOnce()
+    expect(listener.mock.calls[0][0].locomotion.faultReason).toBe('mpc-infeasible')
   })
 
   it('isolates listeners and clears state on dispose', () => {

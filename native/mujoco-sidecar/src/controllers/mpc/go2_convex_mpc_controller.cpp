@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace sidecar::controllers::mpc {
 namespace {
@@ -14,12 +15,28 @@ bool all_contacts(const ContactVector& contacts) {
   return std::all_of(contacts.begin(), contacts.end(), [](const bool value) { return value; });
 }
 
+template <typename Callback>
+class ScopeExit final {
+ public:
+  explicit ScopeExit(Callback callback) : callback_(std::move(callback)) {}
+  ~ScopeExit() { callback_(); }
+  ScopeExit(const ScopeExit&) = delete;
+  ScopeExit& operator=(const ScopeExit&) = delete;
+
+ private:
+  Callback callback_;
+};
+
+template <typename Callback>
+ScopeExit(Callback) -> ScopeExit<Callback>;
+
 }  // namespace
 
 bool Go2ConvexMpcController::initialize(const RobotState& state,
                                        const std::vector<double>& home_joint_positions,
                                        std::string& error) {
   if (!state.finite || home_joint_positions.size() != kJointCount) {
+    transition_to_fault("invalid-controller-initial-state");
     error = "invalid-controller-initial-state";
     return false;
   }
@@ -49,9 +66,41 @@ void Go2ConvexMpcController::reset(const RobotState& state) {
 }
 
 void Go2ConvexMpcController::force_fault(const std::string& reason) {
+  transition_to_fault(reason.empty() ? "external-controller-fault" : reason);
+}
+
+#ifdef SIDECAR_TESTING
+void Go2ConvexMpcController::test_force_consecutive_qp_failure() {
+  consecutive_qp_failures_ = 3;
+  telemetry_.qp_failure_count += 3;
+  telemetry_.solver_status = "primal_infeasible";
+  transition_to_fault("mpc-" + telemetry_.solver_status);
+}
+
+void Go2ConvexMpcController::test_force_non_finite_low_level_command() {
+  transition_to_fault("non-finite-low-level-command");
+}
+#endif
+
+void Go2ConvexMpcController::transition_to_fault(const std::string& reason) {
   state_ = ControllerState::fault;
   telemetry_.state = state_;
-  telemetry_.fault_reason = reason.empty() ? "external-controller-fault" : reason;
+  telemetry_.fault_reason = reason.empty() ? "controller-fault" : reason;
+  telemetry_.commanded_forward_velocity = 0.0;
+  telemetry_.filtered_forward_velocity = 0.0;
+  telemetry_.commanded_yaw_rate = 0.0;
+  telemetry_.filtered_yaw_rate = 0.0;
+  for (auto& force : desired_forces_) force.setZero();
+  for (auto& force : telemetry_.desired_ground_forces) force.setZero();
+}
+
+void Go2ConvexMpcController::finalize_telemetry() {
+  telemetry_.state = state_;
+  if (state_ == ControllerState::fault) {
+    if (telemetry_.fault_reason.empty()) telemetry_.fault_reason = "controller-fault";
+  } else {
+    telemetry_.fault_reason.clear();
+  }
 }
 
 ContactVector Go2ConvexMpcController::expected_contacts(const RobotState& state) const {
@@ -90,14 +139,15 @@ bool Go2ConvexMpcController::update(const RobotState& state, const MotionTarget&
                                    const bool mpc_tick,
                                    std::array<LowLevelJointCommand, kJointCount>& commands,
                                    std::string& error) {
+  const ScopeExit finalize([this] { finalize_telemetry(); });
   if (!initialized_ || !state.finite) {
+    transition_to_fault("invalid-controller-state");
     error = "invalid-controller-state";
     return false;
   }
   if (state.fallen || state.out_of_bounds || state.non_foot_collision) {
-    state_ = ControllerState::fault;
-    telemetry_.fault_reason = state.fallen ? "fall-detected" :
-        state.out_of_bounds ? "out-of-bounds" : "non-foot-contact";
+    transition_to_fault(state.fallen ? "fall-detected" :
+        state.out_of_bounds ? "out-of-bounds" : "non-foot-contact");
   }
   if (state_ == ControllerState::fault) {
     error = telemetry_.fault_reason.empty() ? "controller-fault" : telemetry_.fault_reason;
@@ -174,8 +224,7 @@ bool Go2ConvexMpcController::update(const RobotState& state, const MotionTarget&
       ++consecutive_qp_failures_;
       telemetry_.solver_status = solution.solved ? "budget_exceeded" : solution.status;
       if (consecutive_qp_failures_ >= 3) {
-        state_ = ControllerState::fault;
-        telemetry_.fault_reason = "mpc-" + telemetry_.solver_status;
+        transition_to_fault("mpc-" + telemetry_.solver_status);
         error = telemetry_.fault_reason;
         return false;
       }
@@ -196,8 +245,7 @@ bool Go2ConvexMpcController::update(const RobotState& state, const MotionTarget&
   legs_.compute(state, home_, contacts, desired_forces_, swing_samples, commands);
   for (const auto& command : commands) {
     if (!command.finite()) {
-      state_ = ControllerState::fault;
-      telemetry_.fault_reason = "non-finite-low-level-command";
+      transition_to_fault("non-finite-low-level-command");
       error = telemetry_.fault_reason;
       return false;
     }

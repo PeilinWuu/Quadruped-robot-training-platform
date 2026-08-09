@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, copyFileSync, cpSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, copyFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pipeline } from 'node:stream/promises'
@@ -10,17 +10,23 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = resolve(scriptDirectory, '..')
 const lockPath = join(repositoryRoot, 'native', 'mujoco-sidecar', 'mujoco.lock.json')
 const lock = JSON.parse(readFileSync(lockPath, 'utf8'))
-const cacheRoot = join(repositoryRoot, '.cache', 'mujoco', lock.version)
-const archivePath = join(cacheRoot, `mujoco-${lock.version}-windows-x86_64.zip`)
+const platformKey = `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch === 'x64' ? 'x86_64' : process.arch}`
+const asset = lock.assets?.[platformKey]
+const cacheRoot = join(repositoryRoot, '.cache', 'mujoco', lock.version, platformKey)
+const archivePath = asset ? join(cacheRoot, asset.archive) : ''
 const installRoot = join(cacheRoot, 'install')
 const markerPath = join(installRoot, '.verified-sha256')
 const maximumArchiveBytes = 64 * 1024 * 1024
 
-if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('MuJoCo D4C requires Windows x64')
-if (lock.version !== '3.11.0' || lock.platform !== 'windows' || lock.architecture !== 'x86_64') throw new Error('Unsupported MuJoCo lock metadata')
-if (!lock.officialAssetUrl.startsWith('https://github.com/google-deepmind/mujoco/releases/download/3.11.0/')) throw new Error('MuJoCo asset URL is not the pinned official release')
-if (!/^[a-f0-9]{64}$/.test(lock.sha256)) throw new Error('MuJoCo lock SHA-256 is invalid')
-if (lock.assetSize <= 0 || lock.assetSize > maximumArchiveBytes) throw new Error('MuJoCo locked asset size is invalid')
+if (lock.schemaVersion !== 2 || lock.version !== '3.11.0' || lock.license !== 'Apache-2.0' || !asset) {
+  throw new Error(`Unsupported MuJoCo platform or lock metadata: ${platformKey}`)
+}
+if (!asset.officialAssetUrl.startsWith(`https://github.com/google-deepmind/mujoco/releases/download/${lock.version}/`)) {
+  throw new Error('MuJoCo asset URL is not the pinned official release')
+}
+if (!/^[a-f0-9]{64}$/.test(asset.sha256) || asset.assetSize <= 0 || asset.assetSize > maximumArchiveBytes) {
+  throw new Error('MuJoCo locked asset metadata is invalid')
+}
 
 function sha256(path) {
   return new Promise((resolveHash, reject) => {
@@ -32,27 +38,36 @@ function sha256(path) {
   })
 }
 
+function run(command, args) {
+  const result = spawnSync(command, args, { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true, shell: false })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`${command} failed: ${result.stderr || result.stdout}`)
+  return result.stdout
+}
+
+function safeEntry(entry) {
+  const normalized = entry.replaceAll('\\', '/').replace(/^\.\//, '')
+  return normalized.length > 0 && !normalized.startsWith('/') && !/^[A-Za-z]:/.test(normalized) &&
+    !normalized.split('/').includes('..') && !normalized.startsWith('//')
+}
+
 async function verifiedArchive() {
   mkdirSync(cacheRoot, { recursive: true })
   if (existsSync(archivePath)) {
-    const size = statSync(archivePath).size
     const digest = await sha256(archivePath)
-    if (size === lock.assetSize && digest === lock.sha256) return
+    if (statSync(archivePath).size === asset.assetSize && digest === asset.sha256) return
     rmSync(archivePath, { force: true })
     throw new Error('Cached MuJoCo archive failed locked size or SHA-256 validation and was removed')
   }
   const temporary = `${archivePath}.${process.pid}.tmp`
   rmSync(temporary, { force: true })
-  console.log(`Downloading pinned MuJoCo ${lock.version}: ${lock.officialAssetUrl}`)
-  let response
-  try {
-    response = await fetch(lock.officialAssetUrl, { redirect: 'follow', headers: { 'User-Agent': 'quadruped-robot-research-d4c' } })
-  } catch (error) {
-    throw new Error(`MuJoCo download failed: ${error.message}`)
-  }
+  console.log(`Downloading pinned MuJoCo ${lock.version} for ${platformKey}: ${asset.officialAssetUrl}`)
+  const response = await fetch(asset.officialAssetUrl, { redirect: 'follow', headers: { 'User-Agent': 'quadruped-robot-research-d6-linux' } })
   if (!response.ok || !response.body) throw new Error(`MuJoCo download failed with HTTP ${response.status}`)
   const declared = Number(response.headers.get('content-length') ?? 0)
-  if (declared > maximumArchiveBytes || (declared !== 0 && declared !== lock.assetSize)) throw new Error('MuJoCo download Content-Length does not match the lock')
+  if (declared > maximumArchiveBytes || (declared !== 0 && declared !== asset.assetSize)) {
+    throw new Error('MuJoCo download Content-Length does not match the lock')
+  }
   let received = 0
   const guarded = Readable.from((async function* () {
     for await (const chunk of Readable.fromWeb(response.body)) {
@@ -64,7 +79,9 @@ async function verifiedArchive() {
   try {
     await pipeline(guarded, createWriteStream(temporary, { flags: 'wx' }))
     const digest = await sha256(temporary)
-    if (received !== lock.assetSize || digest !== lock.sha256) throw new Error(`MuJoCo archive validation failed (size=${received}, sha256=${digest})`)
+    if (received !== asset.assetSize || digest !== asset.sha256) {
+      throw new Error(`MuJoCo archive validation failed (size=${received}, sha256=${digest})`)
+    }
     renameSync(temporary, archivePath)
   } catch (error) {
     rmSync(temporary, { force: true })
@@ -72,45 +89,52 @@ async function verifiedArchive() {
   }
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true, shell: false })
-  if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`${command} failed: ${result.stderr || result.stdout}`)
-  return result.stdout
-}
-
-function safeEntry(entry) {
-  const normalized = entry.replaceAll('\\', '/')
-  return normalized.length > 0 && !normalized.startsWith('/') && !/^[A-Za-z]:/.test(normalized) && !normalized.split('/').includes('..') && !normalized.startsWith('//')
+function selectedArchiveEntries(entries) {
+  return entries.filter(entry => {
+    const normalized = entry.replaceAll('\\', '/').replace(/^\.\//, '')
+    const prefix = asset.sourceRoot === '.' ? '' : `${asset.sourceRoot}/`
+    const relative = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized
+    if (relative === 'LICENSE' || /^include\/mujoco\/[^/]+\.h$/.test(relative)) return true
+    if (platformKey === 'windows-x86_64') return relative === 'bin/mujoco.dll' || relative === 'lib/mujoco.lib'
+    return /^lib\/libmujoco\.so(?:\.3\.11(?:\.0)?)?$/.test(relative)
+  })
 }
 
 async function extractRequired() {
-  const installedFiles = ['LICENSE', 'bin/mujoco.dll', 'lib/mujoco.lib', 'include/mujoco/mujoco.h'].map(relative => join(installRoot, ...relative.split('/')))
-  if (existsSync(markerPath) && readFileSync(markerPath, 'utf8').trim() === lock.sha256 && installedFiles.every(path => existsSync(path) && statSync(path).size > 0)) return
-  rmSync(installRoot, { recursive: true, force: true })
-  const entries = run('tar.exe', ['-tf', archivePath]).split(/\r?\n/).filter(Boolean)
-  if (entries.some(entry => !safeEntry(entry))) throw new Error('MuJoCo ZIP contains an unsafe path')
-  const selected = entries.filter(entry => {
-    const relative = entry.replaceAll('\\', '/')
-    return relative === 'LICENSE' || relative === 'bin/mujoco.dll' || relative === 'lib/mujoco.lib' || /^include\/mujoco\/[^/]+\.h$/.test(relative)
+  const runtimeFiles = platformKey === 'windows-x86_64'
+    ? ['LICENSE', 'bin/mujoco.dll', 'lib/mujoco.lib', 'include/mujoco/mujoco.h']
+    : ['LICENSE', 'lib/libmujoco.so', 'lib/libmujoco.so.3.11.0', 'include/mujoco/mujoco.h']
+  const installedFiles = runtimeFiles.map(relative => join(installRoot, ...relative.split('/')))
+  if (existsSync(markerPath) && readFileSync(markerPath, 'utf8').trim() === asset.sha256 &&
+      installedFiles.every(path => existsSync(path) && statSync(path).size > 0)) return
+
+  const entries = run('tar', ['-tf', archivePath]).split(/\r?\n/).filter(Boolean)
+  if (entries.length === 0 || entries.some(entry => !safeEntry(entry))) throw new Error('MuJoCo archive contains an unsafe path')
+  const selected = selectedArchiveEntries(entries)
+  const prefix = asset.sourceRoot === '.' ? '' : `${asset.sourceRoot}/`
+  const normalizedSelected = selected.map(entry => {
+    const normalized = entry.replaceAll('\\', '/').replace(/^\.\//, '')
+    return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized
   })
-  const required = ['LICENSE', 'bin/mujoco.dll', 'lib/mujoco.lib']
-  if (required.some(item => !selected.includes(item)) || !selected.includes('include/mujoco/mujoco.h')) throw new Error('Pinned MuJoCo archive is missing required files')
+  if (runtimeFiles.some(required => !normalizedSelected.includes(required))) {
+    throw new Error(`Pinned MuJoCo archive is missing required files for ${platformKey}`)
+  }
   const temporary = join(cacheRoot, `install-${process.pid}.tmp`)
   rmSync(temporary, { recursive: true, force: true })
   mkdirSync(temporary, { recursive: true })
   try {
-    run('tar.exe', ['-xf', archivePath, '-C', temporary, ...selected])
-    const extracted = temporary
-    for (const relative of ['LICENSE', 'bin/mujoco.dll', 'lib/mujoco.lib', 'include/mujoco/mujoco.h']) {
+    run('tar', ['-xf', archivePath, '-C', temporary, ...selected])
+    const extracted = asset.sourceRoot === '.' ? temporary : join(temporary, asset.sourceRoot)
+    for (const relative of runtimeFiles) {
       const candidate = resolve(extracted, ...relative.split('/'))
-      if (!candidate.startsWith(resolve(extracted) + sep) || !existsSync(candidate) || statSync(candidate).size === 0) throw new Error(`Extracted MuJoCo file is invalid: ${relative}`)
+      if (!candidate.startsWith(resolve(temporary) + sep) || !existsSync(candidate) || statSync(candidate).size === 0) {
+        throw new Error(`Extracted MuJoCo file is invalid: ${relative}`)
+      }
     }
     rmSync(installRoot, { recursive: true, force: true })
-    cpSync(extracted, installRoot, { recursive: true, errorOnExist: true })
-    mkdirSync(dirname(markerPath), { recursive: true })
+    renameSync(extracted, installRoot)
     const markerTemporary = `${markerPath}.tmp`
-    await import('node:fs/promises').then(({ writeFile }) => writeFile(markerTemporary, `${lock.sha256}\n`, { flag: 'w' }))
+    await import('node:fs/promises').then(({ writeFile }) => writeFile(markerTemporary, `${asset.sha256}\n`, { flag: 'w' }))
     renameSync(markerTemporary, markerPath)
   } finally {
     if (existsSync(temporary)) rmSync(temporary, { recursive: true, force: true })
@@ -122,6 +146,6 @@ await extractRequired()
 const licenseTarget = join(repositoryRoot, 'src-tauri', 'resources', 'licenses', 'MuJoCo-Apache-2.0.txt')
 mkdirSync(dirname(licenseTarget), { recursive: true })
 copyFileSync(join(installRoot, 'LICENSE'), licenseTarget)
-console.log(`MuJoCo ${lock.version} verified: sha256=${lock.sha256}, cache=${installRoot}`)
+console.log(`MuJoCo ${lock.version} ${platformKey} verified: sha256=${asset.sha256}, cache=${installRoot}`)
 
-export { installRoot }
+export { installRoot, platformKey }

@@ -5,9 +5,11 @@ import { useAppStore, type SimulationUiState } from '../store/useAppStore'
 import { SIMULATION_MODELS } from '../services/simulation/types'
 import { simulationService } from '../services/simulation/simulationService'
 import { KeyboardLocomotionController, type DemoSpeed, type KeyboardLocomotionState } from '../services/simulation/KeyboardLocomotionController'
+import { editableElement, keyboardUiState, nativeKeyboardService, shouldAutoDisarmKeyboard, type NativeKeyboardDiagnostics } from '../services/simulation/nativeKeyboardService'
 
 const number = (value: number) => value.toFixed(3)
 const vector = (value: [number, number, number]) => value.map(number).join(', ')
+const latency = (later: number, earlier: number) => later >= earlier && earlier > 0 ? `${((later - earlier) / 1000).toFixed(2)} ms` : '—'
 
 export function RobotPanel() {
   const simulation = useAppStore((state) => state.simulation)
@@ -15,32 +17,82 @@ export function RobotPanel() {
   const clearEvent = useAppStore((state) => state.clearLatestCollisionEvent)
   const setFollowRobot = useAppStore((state) => state.setFollowRobot)
   const controllerRef = useRef<KeyboardLocomotionController | null>(null)
-  const [keyboard, setKeyboard] = useState<KeyboardLocomotionState>({ enabled: false, stopReason: null, speed: 'low', forwardVelocity: 0, yawRate: 0 })
+  const nativeModeRef = useRef(false)
+  const [nativeMode, setNativeMode] = useState(false)
+  const [nativeDiagnostics, setNativeDiagnostics] = useState<NativeKeyboardDiagnostics | null>(null)
+  const [keyboard, setKeyboard] = useState<KeyboardLocomotionState>({ enabled: false, resetting: false, stopReason: null, speed: 'low', forwardVelocity: 0, yawRate: 0 })
   useEffect(() => {
-    const controller = new KeyboardLocomotionController({
-      setMotionCommand: (command) => simulationService.setMotionCommand(command),
-      clearMotionCommand: () => simulationService.clearMotionCommand(),
-      reset: () => simulationService.reset(),
-    }, setKeyboard)
-    controllerRef.current = controller
-    return () => { controller.dispose(); controllerRef.current = null }
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    const focusIn = (event: FocusEvent) => {
+      if (editableElement(event.target)) void nativeKeyboardService.setInputSuppressed(true).then((state) => !disposed && setKeyboard(keyboardUiState(state)))
+    }
+    const focusOut = (event: FocusEvent) => {
+      if (editableElement(event.target) && !editableElement(event.relatedTarget)) void nativeKeyboardService.setInputSuppressed(false).then((state) => !disposed && setKeyboard(keyboardUiState(state)))
+    }
+    void nativeKeyboardService.capabilities().then(async (capabilities) => {
+      if (disposed) return
+      if (capabilities.realtimeInputMode === 'native') {
+        nativeModeRef.current = true
+        setNativeMode(true)
+        unlisten = await nativeKeyboardService.subscribe((state) => { if (!disposed) setKeyboard(keyboardUiState(state)) })
+        if (disposed) { unlisten(); return }
+        const state = await nativeKeyboardService.state()
+        if (!disposed) setKeyboard(keyboardUiState(state))
+        document.addEventListener('focusin', focusIn)
+        document.addEventListener('focusout', focusOut)
+        if (editableElement(document.activeElement)) void nativeKeyboardService.setInputSuppressed(true)
+        return
+      }
+      const controller = new KeyboardLocomotionController({
+        setMotionCommand: (command) => simulationService.setMotionCommand(command),
+        clearMotionCommand: () => simulationService.clearMotionCommand(),
+        reset: () => simulationService.reset(),
+      }, setKeyboard)
+      controllerRef.current = controller
+    })
+    return () => {
+      disposed = true
+      document.removeEventListener('focusin', focusIn)
+      document.removeEventListener('focusout', focusOut)
+      unlisten?.()
+      if (nativeModeRef.current) void nativeKeyboardService.disarm()
+      controllerRef.current?.dispose()
+      controllerRef.current = null
+      nativeModeRef.current = false
+    }
   }, [])
   const locomotionAllowed = simulation.selectedModelId === 'unitree-go2-menagerie'
     && simulation.simulationState === 'running' && !simulation.latestTelemetry?.collision.isFallen
     && simulation.latestTelemetry?.locomotion.state !== 'fault'
   useEffect(() => {
-    if (!locomotionAllowed && controllerRef.current?.isEnabled()) controllerRef.current.disable('仿真状态变化，已自动停止')
-  }, [locomotionAllowed])
+    if (shouldAutoDisarmKeyboard(locomotionAllowed, nativeModeRef.current, keyboard.resetting)) {
+      if (nativeModeRef.current && keyboard.enabled) void nativeKeyboardService.disarm().then((state) => setKeyboard(keyboardUiState(state)))
+      if (controllerRef.current?.isEnabled()) controllerRef.current.disable('仿真状态变化，已自动停止')
+    }
+  }, [keyboard.enabled, keyboard.resetting, locomotionAllowed])
   return <RobotPanelContent simulation={simulation} keyboard={keyboard}
-    onToggleKeyboard={() => keyboard.enabled ? controllerRef.current?.disable() : locomotionAllowed && controllerRef.current?.enable()}
-    onSpeed={(speed) => controllerRef.current?.setSpeed(speed)} onFollow={setFollowRobot}
+    nativeMode={nativeMode} nativeDiagnostics={nativeDiagnostics}
+    onToggleKeyboard={() => {
+      if (nativeModeRef.current) {
+        const action = keyboard.enabled ? nativeKeyboardService.disarm() : locomotionAllowed ? nativeKeyboardService.arm() : null
+        if (action) void action.then((state) => setKeyboard(keyboardUiState(state)))
+      } else if (keyboard.enabled) controllerRef.current?.disable()
+      else if (locomotionAllowed) controllerRef.current?.enable()
+    }}
+    onSpeed={(speed) => {
+      if (nativeModeRef.current) void nativeKeyboardService.setSpeed(speed).then((state) => setKeyboard(keyboardUiState(state)))
+      else controllerRef.current?.setSpeed(speed)
+    }} onRefreshNativeDiagnostics={nativeMode ? () => void nativeKeyboardService.diagnostics().then(setNativeDiagnostics) : undefined}
+    onFollow={setFollowRobot}
     onReset={() => void reset()} onClearEvent={clearEvent}/>
 }
 
-export function RobotPanelContent({ simulation, keyboard, onToggleKeyboard, onSpeed, onFollow, onReset, onClearEvent }: {
+export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiagnostics, onToggleKeyboard, onSpeed, onFollow, onReset, onClearEvent, onRefreshNativeDiagnostics }: {
   simulation: SimulationUiState; keyboard?: KeyboardLocomotionState; onToggleKeyboard?: () => void
+  nativeMode?: boolean; nativeDiagnostics?: NativeKeyboardDiagnostics | null
   onSpeed?: (speed: DemoSpeed) => void; onFollow?: (enabled: boolean) => void
-  onReset?: () => void; onClearEvent?: () => void
+  onReset?: () => void; onClearEvent?: () => void; onRefreshNativeDiagnostics?: () => void
 }) {
   const pose = simulation.latestPose
   const telemetry = simulation.latestTelemetry
@@ -99,10 +151,19 @@ export function RobotPanelContent({ simulation, keyboard, onToggleKeyboard, onSp
             <button type="button" disabled={!onToggleKeyboard || (!keyboard?.enabled && !keyboardAllowed)} onClick={onToggleKeyboard}>{keyboard?.enabled ? '解除键盘控制' : '启用键盘控制'}</button>
             <label>演示速度<select value={keyboard?.speed ?? 'low'} onChange={(event) => onSpeed?.(event.target.value as DemoSpeed)}><option value="low">低</option><option value="medium">中</option></select></label>
             <label><input type="checkbox" checked={simulation.followRobot} onChange={(event) => onFollow?.(event.target.checked)}/> 跟随机器人</label>
+            {nativeMode && <button type="button" onClick={onRefreshNativeDiagnostics}>刷新 native 诊断</button>}
           </div>
           <p><b>{keyboard?.enabled ? '键盘控制已启用' : keyboard?.stopReason ?? '键盘控制默认未启用'}</b> · W/S 前后 · A/D 转向 · Space 停止 · R 重置 · Esc 解除</p>
           {!keyboardAllowed && <p className="collision-alert">仅 Go2 + running + 无故障时可启用；Minimal 不支持运动。需要 reset 清除跌倒或 fault。</p>}
           <dl className="robot-performance">
+            {nativeMode && <>
+              <div><dt>Native key → desired</dt><dd>{nativeDiagnostics ? latency(nativeDiagnostics.lastDesiredStateUnixMicros, nativeDiagnostics.lastKeyEventUnixMicros) : '点击刷新'}</dd></div>
+              <div><dt>Native desired → send</dt><dd>{nativeDiagnostics ? latency(nativeDiagnostics.lastHeartbeatSendUnixMicros, nativeDiagnostics.lastDesiredStateUnixMicros) : '点击刷新'}</dd></div>
+              <div><dt>Native key → send</dt><dd>{nativeDiagnostics ? latency(nativeDiagnostics.lastHeartbeatSendUnixMicros, nativeDiagnostics.lastKeyEventUnixMicros) : '点击刷新'}</dd></div>
+              <div><dt>Native send round-trip</dt><dd>{nativeDiagnostics ? `${(nativeDiagnostics.lastSendLatencyMicros / 1000).toFixed(2)} ms` : '点击刷新'}</dd></div>
+              <div><dt>Native in-flight / max</dt><dd>{nativeDiagnostics ? `${nativeDiagnostics.inFlight} / ${nativeDiagnostics.maxInFlight}` : '点击刷新'}</dd></div>
+              <div><dt>Sidecar command age</dt><dd>{nativeDiagnostics ? `${nativeDiagnostics.lastSidecarCommandAgeMs} ms` : '点击刷新'}</dd></div>
+            </>}
             <div><dt>控制器 / 状态</dt><dd>{locomotion ? `${locomotion.controllerId} / ${locomotion.state}` : '—'}</dd></div>
             <div><dt>Gait / Phase</dt><dd>{locomotion ? `${number(locomotion.gaitFrequencyHz)} Hz / ${number(locomotion.gaitPhase)}` : '—'}</dd></div>
             <div><dt>期望 / 实际接触</dt><dd>{locomotion ? `${locomotion.expectedContacts.map(Number).join('')} / ${locomotion.actualContacts.map(Number).join('')}` : '—'}</dd></div>

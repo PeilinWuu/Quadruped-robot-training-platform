@@ -2461,6 +2461,8 @@ name = "quadruped-robot-research"
 version = "0.1.0"
 dependencies = [
  "fs2",
+ "gtk",
+ "libc",
  "rusqlite",
  "scrypt",
  "serde",

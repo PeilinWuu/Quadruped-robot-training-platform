@@ -19,11 +19,11 @@
     "build": "npm run build:go2-visuals && npm run verify:go2-visuals && tsc -b && vite build",
     "lint": "oxlint src server",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test": "npm run test:node && npm run test:frontend",
+    "test": "npm run build:go2-visuals && npm run verify:go2-visuals && npm run test:node && npm run test:frontend",
     "test:node": "node --import tsx --test server/*.test.ts scripts/*.test.mjs",
     "test:frontend": "vitest run src/services/scenes src/services/simulation src/features/gaussian-viewer/robot src/features/gaussian-viewer/environment src/store src/components",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "node scripts/tauri-stable-cli.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

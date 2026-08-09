@@ -6,6 +6,12 @@ import type {
 } from '../types'
 import { FLAT_GROUND_ENVIRONMENT } from '../types'
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((yes) => { resolve = yes })
+  return { promise, resolve }
+}
+
 const MODEL: ModelMetadata = { modelId: 'unitree-go2-menagerie', environmentId: 'flat-ground-v1', environment: FLAT_GROUND_ENVIRONMENT, timestep: .002, jointCount: 12, actuatorCount: 12, bodyCount: 18 }
 const JOINTS = ['FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint', 'FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint', 'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint', 'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint']
 const POSE: RobotPose = {
@@ -118,6 +124,27 @@ describe('ManagedSimulationService', () => {
     await service.shutdown(); await service.shutdown()
     expect(fake.subscription.unsubscribe).toHaveBeenCalledTimes(1)
     expect(fake.adapter.stopSidecar).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces motion invokes latest-wins and gives a pending clear priority', async () => {
+    const first = deferred<Awaited<ReturnType<SimulationAdapter['setMotionCommand']>>>()
+    vi.mocked(fake.adapter.setMotionCommand).mockImplementationOnce(() => first.promise)
+    const base = { sequence: 1, mode: 'locomotion' as const, forwardVelocity: .12, lateralVelocity: 0, yawRate: 0, bodyHeight: .3, validForMs: 250 }
+    const firstResult = service.setMotionCommand(base)
+    await vi.waitFor(() => expect(fake.adapter.setMotionCommand).toHaveBeenCalledTimes(1))
+    const staleResult = service.setMotionCommand({ ...base, sequence: 2, yawRate: .24 })
+    const latestResult = service.setMotionCommand({ ...base, sequence: 3, yawRate: -.24 })
+    const clearResult = service.clearMotionCommand()
+    expect(fake.adapter.clearMotionCommand).not.toHaveBeenCalled()
+    first.resolve({ ...base, ageMs: 0, timedOut: false, appliedByController: true, bodyHeightApplied: true, controllerAvailability: 'go2-convex-mpc-v1' })
+    await firstResult
+    await vi.waitFor(() => expect(fake.adapter.clearMotionCommand).toHaveBeenCalledOnce())
+    expect(fake.adapter.setMotionCommand).toHaveBeenCalledTimes(1)
+    await Promise.all([staleResult, latestResult, clearResult])
+    expect(service.getMotionDispatchDiagnostics()).toMatchObject({
+      requested: 4, dispatched: 2, completed: 2, coalesced: 2,
+      inFlight: 0, maxInFlight: 1,
+    })
   })
 
   it('isolates event listeners and keeps the 60 Hz pose outside React state', async () => {

@@ -439,13 +439,12 @@ export function useGaussianViewer() {
     if (!robotDesktop) return
     const removePoseListener = simulationService.onPose((pose) => {
       runtimeRef.current?.setRobotFollow?.(useAppStore.getState().simulation.followRobot)
-      if (runtimeRef.current?.updateRobotPose?.(pose)) {
-        runtimeRef.current.setRobotVisible?.(robotVisibleRef.current)
-      }
+      runtimeRef.current?.updateRobotPose?.(pose)
     })
     const removeEventListener = simulationService.onEvent((event) => {
       if (event.type === 'model_loaded') {
         runtimeRef.current?.setRobotModel?.(event.payload.modelId as 'unitree-go2-menagerie' | 'minimal-quadruped-v1')
+        runtimeRef.current?.setRobotVisible?.(robotVisibleRef.current)
         runtimeRef.current?.clearRobotPose?.()
       } else if (event.type === 'error') {
         runtimeRef.current?.setRobotVisible?.(false)
@@ -504,8 +503,11 @@ export function useGaussianViewer() {
     const applyResize = () => {
       resizeRafId = null
       if (disposed || !pendingSize) return
-      const width = Math.floor(pendingSize.width)
-      const height = Math.floor(pendingSize.height)
+      // The simulation column may be taller than the WebView and clipped by the
+      // shell. Do not allocate/render a backing store for pixels that can never
+      // be visible in the current viewport.
+      const width = Math.floor(Math.min(pendingSize.width, window.innerWidth))
+      const height = Math.floor(Math.min(pendingSize.height, window.innerHeight))
       const pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
       if (
         !Number.isFinite(width)

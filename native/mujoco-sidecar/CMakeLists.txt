@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(NOT DEFINED MUJOCO_ROOT)
   message(FATAL_ERROR "MUJOCO_ROOT must point to the verified project-local MuJoCo 3.11.0 cache")
@@ -39,20 +40,25 @@ set(OSQP_ALGEBRA_BACKEND builtin CACHE STRING "Builtin QDLDL only" FORCE)
 add_subdirectory("${OSQP_ROOT_ABSOLUTE}" "${CMAKE_BINARY_DIR}/_deps/osqp" EXCLUDE_FROM_ALL)
 cmake_path(ABSOLUTE_PATH MUJOCO_ROOT NORMALIZE OUTPUT_VARIABLE MUJOCO_ROOT_ABSOLUTE)
 set(MUJOCO_INCLUDE_DIR "${MUJOCO_ROOT_ABSOLUTE}/include")
-set(MUJOCO_IMPORT_LIBRARY "${MUJOCO_ROOT_ABSOLUTE}/lib/mujoco.lib")
-set(MUJOCO_RUNTIME_LIBRARY "${MUJOCO_ROOT_ABSOLUTE}/bin/mujoco.dll")
-foreach(required "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" "${MUJOCO_IMPORT_LIBRARY}" "${MUJOCO_RUNTIME_LIBRARY}")
+if(WIN32)
+  set(MUJOCO_LINK_LIBRARY "${MUJOCO_ROOT_ABSOLUTE}/lib/mujoco.lib")
+  set(MUJOCO_RUNTIME_LIBRARY "${MUJOCO_ROOT_ABSOLUTE}/bin/mujoco.dll")
+else()
+  set(MUJOCO_LINK_LIBRARY "${MUJOCO_ROOT_ABSOLUTE}/lib/libmujoco.so")
+  set(MUJOCO_RUNTIME_LIBRARY "${MUJOCO_ROOT_ABSOLUTE}/lib/libmujoco.so.3.11.0")
+endif()
+foreach(required "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" "${MUJOCO_LINK_LIBRARY}" "${MUJOCO_RUNTIME_LIBRARY}")
   if(NOT EXISTS "${required}")
     message(FATAL_ERROR "Verified MuJoCo cache file is missing: ${required}")
   endif()
 endforeach()
 
 add_library(mujoco_imported SHARED IMPORTED GLOBAL)
-set_target_properties(mujoco_imported PROPERTIES
-  IMPORTED_IMPLIB "${MUJOCO_IMPORT_LIBRARY}"
-  IMPORTED_LOCATION "${MUJOCO_RUNTIME_LIBRARY}"
-  INTERFACE_INCLUDE_DIRECTORIES "${MUJOCO_INCLUDE_DIR}"
-)
+if(WIN32)
+  set_target_properties(mujoco_imported PROPERTIES IMPORTED_IMPLIB "${MUJOCO_LINK_LIBRARY}")
+endif()
+set_target_properties(mujoco_imported PROPERTIES IMPORTED_LOCATION "${MUJOCO_RUNTIME_LIBRARY}")
+target_include_directories(mujoco_imported SYSTEM INTERFACE "${MUJOCO_INCLUDE_DIR}")
 
 add_library(sidecar_protocol STATIC
   src/protocol.cpp
@@ -80,6 +86,12 @@ add_executable(quadruped-simulation-sidecar
 )
 target_link_libraries(sidecar_protocol PUBLIC mujoco_imported PRIVATE osqpstatic)
 target_link_libraries(quadruped-simulation-sidecar PRIVATE sidecar_protocol)
+if(UNIX AND NOT APPLE)
+  set_target_properties(quadruped-simulation-sidecar PROPERTIES
+    BUILD_WITH_INSTALL_RPATH ON
+    INSTALL_RPATH "$ORIGIN"
+  )
+endif()
 add_custom_command(TARGET quadruped-simulation-sidecar POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MUJOCO_RUNTIME_LIBRARY}" "$<TARGET_FILE_DIR:quadruped-simulation-sidecar>"
 )

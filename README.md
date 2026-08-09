@@ -21,7 +21,7 @@
 - Go2 平地 Convex MPC：支持前进、后退、原地转向、弧线运动和受控停止。
 - 基于 OSQP 的地面反力二次规划、对角小跑步态、落足点规划、摆动轨迹和腿部控制。
 - 跌倒、越界、非足部接触、QP 连续失败、非有限控制量和持续执行器饱和保护。
-- Windows NSIS Release 构建及固定版本第三方依赖校验。
+- Windows NSIS 与 Ubuntu Linux deb/AppImage 构建，以及固定版本第三方依赖校验。
 
 ### 仍为 Mock 或界面预留
 
@@ -110,19 +110,47 @@ SimulationView
 - WebView2 Runtime
 - 首次准备固定版本依赖时可访问相应官方发布地址
 
+### Ubuntu Linux 桌面开发与 MuJoCo
+
+- Ubuntu 22.04 x86_64
+- Rust stable GNU 工具链（项目最低 Rust 版本为 1.77.2）
+- GCC/G++、CMake、Ninja 和 pkg-config
+- Tauri 2 系统依赖：`libwebkit2gtk-4.1-dev`、`libayatana-appindicator3-dev`、`librsvg2-dev`、`libxdo-dev`、`libssl-dev`
+- AppImage 工具依赖：`patchelf`
+
+Ubuntu 22.04 安装命令：
+
+```bash
+sudo apt update
+sudo apt install build-essential git cmake ninja-build pkg-config curl wget file \
+  libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev patchelf
+```
+
 安装 JavaScript 依赖：
 
 ```bash
-npm install
+npm ci
 ```
 
 首次构建 MPC Sidecar 前准备固定版本的 Eigen、OSQP 和 QDLDL：
 
 ```bash
 npm run setup:mpc
+npm run setup:mujoco
 ```
 
-`npm run build:sidecar` 会在本地缓存不存在时下载锁定的 MuJoCo 3.11.0，校验文件大小与 SHA-256，然后配置 CMake、编译 Release Sidecar 并运行 C++ 测试。下载缓存和构建产物不会提交到 Git。
+两个 setup 命令是唯一允许下载 C++ 依赖的步骤，会按平台选择 MuJoCo 3.11.0 官方资产并校验文件大小与 SHA-256。`npm run build:sidecar` 只使用已验证的本地缓存，离线配置 CMake、编译 Release Sidecar并运行 C++ 测试。下载缓存和构建产物不会提交到 Git。
+
+平台资源对应关系：
+
+| 类型 | Windows x86_64 | Linux x86_64 |
+| --- | --- | --- |
+| Sidecar | `quadruped-simulation-sidecar.exe` | `quadruped-simulation-sidecar` |
+| MuJoCo runtime | `mujoco.dll` | `libmujoco.so.3.11.0`（同时打包 `libmujoco.so`） |
+| 进程保护 | Job Object + `CREATE_NO_WINDOW` | `PR_SET_PDEATHSIG` + 受控子进程清理 |
+| CMake generator | Visual Studio 2022 | Ninja |
+| 安装包 | NSIS | deb、AppImage |
 
 如需重新获取上游 Go2 Menagerie 源文件：
 
@@ -159,17 +187,23 @@ npm run dev:api
 
 ### Tauri 桌面开发模式
 
-首次运行前先完成 `npm install` 和 `npm run setup:mpc`，然后执行：
+首次运行前先完成 `npm ci`、`npm run setup:mpc` 和 `npm run setup:mujoco`，然后执行：
 
 ```bash
 npm run tauri dev
 ```
 
+在 Linux 上，这条命令会在启动前把当前应用的 `WebKitCache`、`CacheStorage`
+和 `hsts` 网络状态移动到同一用户数据卷中的可恢复归档，并为 Tauri CLI 自动加上
+`--no-watch`。这避免 WebKitGTK 在 Rust 热重载重建 WebView 时进入损坏的网络加载状态；
+`storage`、场景和登录数据不会被移动。前端仍可使用 Vite HMR，修改 Rust 后需要手动
+停止并重新执行该命令。Windows 和 `tauri build` 等其他子命令仍直接使用标准 Tauri CLI。
+
 Tauri 的 `beforeDevCommand` 会自动：
 
 1. 验证 Go2 Menagerie 资源；
 2. 构建并测试 C++ Sidecar；
-3. 复制 Sidecar、MuJoCo DLL、模型和许可证到运行目录；
+3. 按当前平台复制 Sidecar、MuJoCo 动态库、模型和许可证到运行目录；
 4. 生成并验证 Go2 可视资产；
 5. 启动 Vite 前端。
 
@@ -195,13 +229,23 @@ Windows Tauri Release 与 NSIS 安装包：
 npm run tauri build
 ```
 
+Ubuntu Linux Release 与 deb/AppImage 使用同一命令；Tauri 会自动合并 `tauri.linux.conf.json`，
+并在 Release 编译时将用户主目录和工作区路径重映射为中性构建路径，避免包内泄露构建机绝对路径：
+
+```bash
+npm run tauri build
+```
+
 主要输出目录：
 
 ```text
 dist/
 native/mujoco-sidecar/build/Release/
+native/mujoco-sidecar/build-linux/
 src-tauri/target/release/
 src-tauri/target/release/bundle/nsis/
+src-tauri/target/release/bundle/deb/
+src-tauri/target/release/bundle/appimage/
 ```
 
 ## 检查与测试

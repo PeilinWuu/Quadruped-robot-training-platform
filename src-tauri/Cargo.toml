@@ -1,7 +1,7 @@
 [package]
 name = "quadruped-robot-research"
 version = "0.1.0"
-description = "Windows desktop shell for the Quadruped Robot Research UI"
+description = "Windows and Linux desktop shell for the Quadruped Robot Research UI"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -36,3 +36,7 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_System_JobObjects",
   "Win32_System_Threading",
 ] }
+
+[target."cfg(target_os = \"linux\")".dependencies]
+gtk = "0.18.2"
+libc = "0.2"

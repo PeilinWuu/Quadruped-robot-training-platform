@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { Box, Camera, Crosshair, Expand, Eye, Pause, Play, RefreshCw, SkipForward, Square, Video } from 'lucide-react'
 import { Dropdown, Segmented, Select, Tooltip } from 'antd'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppStore, type SimulationActionResult } from '../store/useAppStore'
 import { SIMULATION_MODELS, type MotionCommandMode, type SimulationModelId } from '../services/simulation/types'
 
@@ -8,7 +9,17 @@ const GaussianViewport = lazy(() => import('../features/gaussian-viewer/Gaussian
 
 export function SimulationView({ notify }: { notify: (text: string) => void }) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
-  const simulation = useAppStore((state) => state.simulation)
+  const simulation = useAppStore(useShallow((state) => ({
+    busy: state.simulation.busy,
+    desktop: state.simulation.desktop,
+    lastError: state.simulation.lastError,
+    latestMotionCommand: state.simulation.latestMotionCommand,
+    model: state.simulation.model,
+    processState: state.simulation.processState,
+    selectedModelId: state.simulation.selectedModelId,
+    simulationState: state.simulation.simulationState,
+    speed: state.simulation.speed,
+  })))
   const start = useAppStore((state) => state.startSimulation)
   const pause = useAppStore((state) => state.pauseSimulation)
   const resume = useAppStore((state) => state.resumeSimulation)
