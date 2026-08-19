@@ -90,4 +90,6 @@ export const nativeKeyboardService = {
   setInputSuppressed: (suppressed: boolean) => command<NativeKeyboardState>('native_keyboard_set_input_suppressed', { suppressed }),
   subscribe: (listener: (state: NativeKeyboardState) => void): Promise<UnlistenFn> =>
     listen<NativeKeyboardState>('native-keyboard-state-changed', (event) => listener(event.payload)),
+  subscribeResetRequested: (listener: () => void): Promise<UnlistenFn> =>
+    listen('native-keyboard-reset-requested', listener),
 }

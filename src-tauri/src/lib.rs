@@ -1,5 +1,7 @@
 mod auth;
 mod input;
+mod real_robot;
+mod ros_bridge;
 mod scenes;
 mod simulation;
 
@@ -18,14 +20,24 @@ pub fn run() {
                 simulation_manager.clone(),
                 app.handle().clone(),
             );
+            let ros_bridge = ros_bridge::RosBridgeManager::new(
+                simulation_manager.clone(),
+                native_keyboard.clone(),
+                app.handle().clone(),
+            );
+            let real_robot = real_robot::RealRobotManager::new(app.handle().clone());
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
                 input::install_linux_window_hooks(&window, native_keyboard.clone())?;
             }
             app.manage(simulation_manager);
             app.manage(native_keyboard);
+            app.manage(ros_bridge.clone());
+            app.manage(real_robot.clone());
             app.manage(auth_state);
             app.manage(scene_state);
+            ros_bridge.start_optional();
+            real_robot.start_optional();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -68,7 +80,17 @@ pub fn run() {
             input::native_keyboard_arm,
             input::native_keyboard_disarm,
             input::native_keyboard_set_speed,
-            input::native_keyboard_set_input_suppressed
+            input::native_keyboard_set_input_suppressed,
+            ros_bridge::ros_bridge_status,
+            ros_bridge::ros_bridge_set_control_source,
+            real_robot::real_robot_status,
+            real_robot::real_robot_set_enabled,
+            real_robot::real_robot_move_once,
+            real_robot::real_robot_keyboard_motion,
+            real_robot::real_robot_stop,
+            real_robot::real_robot_stand_up,
+            real_robot::real_robot_stand_down,
+            real_robot::real_robot_lidar
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Quadruped Robot Research desktop application");
@@ -84,6 +106,12 @@ pub fn run() {
             }
         }
         tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            if let Some(manager) = app.try_state::<real_robot::RealRobotManager>() {
+                manager.shutdown_for_exit();
+            }
+            if let Some(bridge) = app.try_state::<ros_bridge::RosBridgeManager>() {
+                bridge.shutdown_for_exit();
+            }
             if let Some(keyboard) = app.try_state::<input::NativeKeyboardController>() {
                 keyboard.shutdown();
             }

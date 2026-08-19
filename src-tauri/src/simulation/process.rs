@@ -202,6 +202,10 @@ pub fn spawn(path: &Path, resource_root: &Path) -> Result<SpawnedSidecar, Simula
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(not(all(target_os = "linux", debug_assertions)))]
+    command
+        .env_remove("D6_NATIVE_MUJOCO_VIEWER_POC")
+        .env_remove("D6_NATIVE_MUJOCO_VIEWER_FPS");
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     #[cfg(target_os = "linux")]
@@ -211,6 +215,11 @@ pub fn spawn(path: &Path, resource_root: &Path) -> Result<SpawnedSidecar, Simula
         child: spawned.child,
         guard: spawned.guard,
     })
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn spawn_guarded(command: Command) -> Result<SpawnedSidecar, SimulationError> {
+    spawn_with_parent_keeper(command)
 }
 
 fn spawn_direct(mut command: Command) -> Result<SpawnedProcess, SimulationError> {
@@ -270,6 +279,14 @@ mod tests {
     use super::*;
     #[cfg(target_os = "linux")]
     use std::os::unix::process::ExitStatusExt as _;
+
+    #[test]
+    fn native_viewer_poc_is_compile_time_limited_to_linux_debug() {
+        assert_eq!(
+            cfg!(all(target_os = "linux", debug_assertions)),
+            cfg!(target_os = "linux") && cfg!(debug_assertions)
+        );
+    }
 
     #[test]
     #[cfg(target_os = "linux")]

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(quadruped_simulation_sidecar VERSION 0.1.0 LANGUAGES C CXX)
 
 include(CTest)
+option(D6_NATIVE_VIEWER_POC_BUILD "Build the Linux development-only native viewer POC" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,6 +87,15 @@ add_executable(quadruped-simulation-sidecar
 )
 target_link_libraries(sidecar_protocol PUBLIC mujoco_imported PRIVATE osqpstatic)
 target_link_libraries(quadruped-simulation-sidecar PRIVATE sidecar_protocol)
+if(D6_NATIVE_VIEWER_POC_BUILD)
+  if(NOT UNIX OR APPLE)
+    message(FATAL_ERROR "D6 native viewer POC is Linux-only")
+  endif()
+  find_package(glfw3 3.3 REQUIRED)
+  target_sources(sidecar_protocol PRIVATE src/native_viewer.cpp)
+  target_compile_definitions(sidecar_protocol PUBLIC D6_NATIVE_VIEWER_POC_BUILD=1)
+  target_link_libraries(sidecar_protocol PRIVATE glfw)
+endif()
 if(UNIX AND NOT APPLE)
   set_target_properties(quadruped-simulation-sidecar PROPERTIES
     BUILD_WITH_INSTALL_RPATH ON
@@ -123,6 +133,9 @@ if(BUILD_TESTING)
     target_compile_options(sidecar-protocol-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME sidecar-protocol-tests COMMAND sidecar-protocol-tests)
+  set_tests_properties(sidecar-protocol-tests PROPERTIES
+    ENVIRONMENT "D6_NATIVE_MUJOCO_VIEWER_POC=0"
+  )
 
   add_executable(sidecar-mpc-tests tests/mpc_tests.cpp)
   target_link_libraries(sidecar-mpc-tests PRIVATE sidecar_protocol osqpstatic)

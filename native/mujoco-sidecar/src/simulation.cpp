@@ -225,6 +225,9 @@ void SimulationEngine::DataDeleter::operator()(mjData* value) const noexcept { i
 
 SimulationEngine::SimulationEngine(std::filesystem::path resource_root, EventSink event_sink)
     : resource_root_(std::move(resource_root)), event_sink_(std::move(event_sink)),
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+      native_viewer_(NativeViewerConfig::from_environment()),
+#endif
       physics_thread_(&SimulationEngine::physics_loop, this) {}
 
 SimulationEngine::SimulationEngine(std::filesystem::path resource_root, LegacyPoseSink pose_sink)
@@ -246,6 +249,9 @@ void SimulationEngine::shutdown() {
   }
   condition_.notify_all();
   if (physics_thread_.joinable()) physics_thread_.join();
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+  native_viewer_.shutdown();
+#endif
 }
 
 EngineResult SimulationEngine::load_model(const std::string& model_id,
@@ -395,6 +401,9 @@ EngineResult SimulationEngine::load_model(const std::string& model_id,
     latest_pose_ = pose_locked(false);
     latest_collision_ = collision_telemetry_locked();
     latest_telemetry_ = telemetry_locked(false);
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+    native_viewer_.replace_model(model_.get(), data_.get());
+#endif
     auto environment = flat_ground_environment();
     environment.spawn_position = convert_position({data_->qpos[0], data_->qpos[1], data_->qpos[2]});
     environment.spawn_orientation = convert_quaternion_wxyz(
@@ -415,6 +424,9 @@ EngineResult SimulationEngine::start() {
   if (!model_ || !(state_ == SimulationState::loaded || state_ == SimulationState::paused || state_ == SimulationState::stopped)) return invalid_state();
   state_ = SimulationState::running;
   reset_statistics_locked();
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+  native_viewer_.set_active(true);
+#endif
   condition_.notify_all();
   return {true, state_payload_locked(), {}};
 }
@@ -487,6 +499,9 @@ EngineResult SimulationEngine::reset() {
     latest_pose_ = pose;
     latest_collision_ = collision_telemetry_locked();
     telemetry = telemetry_locked(false);
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+    native_viewer_.publish_state(model_.get(), data_.get());
+#endif
     collision_events = take_collision_events_locked();
     result = {true, state_payload_locked(), {}};
   }
@@ -505,6 +520,9 @@ EngineResult SimulationEngine::stop() {
     state_ = SimulationState::stopped;
     clear_motion_locked();
     reset_locomotion_locked();
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+    native_viewer_.set_active(false);
+#endif
     telemetry = telemetry_locked(true);
     result = {true, state_payload_locked(), {}};
   }
@@ -1277,6 +1295,9 @@ void SimulationEngine::physics_loop() {
       if (now - last_pose_publish >= pose_period) {
         pose = pose_locked(true);
         latest_pose_ = pose;
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+        native_viewer_.publish_state(model_.get(), data_.get());
+#endif
         ++pose_publishes_;
         last_pose_publish += pose_period;
       }

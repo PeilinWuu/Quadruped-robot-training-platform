@@ -176,21 +176,24 @@ trait MotionSink: Send + Sync + 'static {
     fn reset(&self);
 }
 
-struct ManagerMotionSink(SimulationManager);
+struct ManagerMotionSink {
+    manager: SimulationManager,
+    app: AppHandle,
+}
 
 impl MotionSink for ManagerMotionSink {
     fn available(&self) -> bool {
-        self.0.native_motion_available()
+        self.manager.native_motion_available()
     }
 
     fn send(&self, command: Option<MotionCommand>) -> Option<u64> {
         if let Some(command) = command {
-            self.0
+            self.manager
                 .set_motion_command(command)
                 .ok()
                 .map(|status| status.age_ms)
         } else {
-            self.0
+            self.manager
                 .clear_motion_command()
                 .ok()
                 .map(|status| status.age_ms)
@@ -198,7 +201,10 @@ impl MotionSink for ManagerMotionSink {
     }
 
     fn reset(&self) {
-        let _ = self.0.reset_preserving_run_state();
+        // GTK consumes R before it reaches the WebView. Forward it explicitly so
+        // keyboard and UI resets share the same frontend recovery transaction,
+        // including sidecar restart after a crash.
+        let _ = self.app.emit("native-keyboard-reset-requested", ());
     }
 }
 
@@ -238,10 +244,11 @@ pub struct NativeKeyboardController {
 
 impl NativeKeyboardController {
     pub fn new(manager: SimulationManager, app: AppHandle) -> Self {
+        let state_app = app.clone();
         let observer: StateObserver = Arc::new(move |state| {
-            let _ = app.emit("native-keyboard-state-changed", state);
+            let _ = state_app.emit("native-keyboard-state-changed", state);
         });
-        Self::with_sink(Arc::new(ManagerMotionSink(manager)), Some(observer))
+        Self::with_sink(Arc::new(ManagerMotionSink { manager, app }), Some(observer))
     }
 
     fn with_sink(sink: Arc<dyn MotionSink>, observer: Option<StateObserver>) -> Self {
@@ -384,7 +391,10 @@ impl NativeKeyboardController {
                 state.clear_requested = true;
                 return;
             }
-            if key == NativeKey::Reset && pressed && state.armed && !state.suppress_input {
+            // Reset is a recovery action, not a locomotion action. A controller fault
+            // automatically disarms W/A/S/D, but R must remain available so the user
+            // can recover without restarting the application.
+            if key == NativeKey::Reset && pressed {
                 consumed = true;
                 state.generation = state.generation.wrapping_add(1);
                 state.clear_keys();

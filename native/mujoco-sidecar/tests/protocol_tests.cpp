@@ -1,4 +1,7 @@
 #include "protocol.hpp"
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+#include "native_viewer.hpp"
+#endif
 #include "simulation.hpp"
 
 #include <atomic>
@@ -41,6 +44,19 @@ std::string command(const char* id, const char* type, Json payload) {
 }
 
 int main() {
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+  {
+    const auto default_viewer = sidecar::resolve_native_viewer_config("", "");
+    const auto thirty_fps = sidecar::resolve_native_viewer_config("1", "30");
+    const auto invalid_fps = sidecar::resolve_native_viewer_config("1", "120");
+    expect(!default_viewer.enabled && default_viewer.fps == 60,
+           "native viewer defaults off at 60 FPS");
+    expect(thirty_fps.enabled && thirty_fps.fps == 30,
+           "native viewer explicitly supports 30 FPS");
+    expect(invalid_fps.enabled && invalid_fps.fps == 60,
+           "invalid native viewer FPS falls back to 60");
+  }
+#endif
   expect(mjVERSION_HEADER == 3011000 && mj_version() == mjVERSION_HEADER, "header runtime version");
   std::mutex events_mutex;
   std::vector<Json> events;

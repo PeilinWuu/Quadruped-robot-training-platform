@@ -1,6 +1,8 @@
 # Logs
 logs
 *.log
+__pycache__/
+*.pyc
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -13,6 +15,11 @@ dist-ssr
 /src-tauri/target/
 /native/mujoco-sidecar/build/
 /native/mujoco-sidecar/build-linux/
+/native/mujoco-sidecar/build-linux-native-viewer-poc/
+/src-tauri/MUJOCO_LOG.TXT
+/ros2_ws/build/
+/ros2_ws/install/
+/ros2_ws/log/
 /src-tauri/resources/sidecar/*
 !/src-tauri/resources/sidecar/.gitkeep
 /.cache/mujoco/
@@ -25,6 +32,10 @@ dist-ssr
 *.deb
 *.local
 data/
+data/go2_capture/**
+!data/go2_capture/.gitkeep
+*.db3
+*.mcap
 zip/
 uploads/
 coverage/

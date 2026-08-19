@@ -11,7 +11,8 @@ const platformKey = `${isWindows ? 'windows' : process.platform}-${process.arch 
 if (!['windows-x86_64', 'linux-x86_64'].includes(platformKey)) {
   throw new Error(`Sidecar builds require Windows or Linux x86_64, received ${platformKey}`)
 }
-const buildDirectory = join(sourceDirectory, isWindows ? 'build' : 'build-linux')
+const nativeViewerPocBuild = !isWindows && process.env.D6_NATIVE_MUJOCO_VIEWER_POC === '1'
+const buildDirectory = join(sourceDirectory, isWindows ? 'build' : nativeViewerPocBuild ? 'build-linux-native-viewer-poc' : 'build-linux')
 const mujocoRoot = join(repositoryRoot, '.cache', 'mujoco', '3.11.0', platformKey, 'install')
 const mpcCacheRoot = join(repositoryRoot, '.cache', 'mpc-dependencies')
 const eigenRoot = join(mpcCacheRoot, 'eigen', '3.4.0', 'source', 'eigen-3.4.0')
@@ -39,6 +40,11 @@ const licenseFiles = [
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: repositoryRoot, stdio: 'inherit', shell: false, windowsHide: true })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
+}
+function runWithEnvironment(command, args, environment) {
+  const result = spawnSync(command, args, { cwd: repositoryRoot, stdio: 'inherit', shell: false, windowsHide: true, env: environment })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
 }
@@ -88,12 +94,16 @@ for (const [source, name] of licenseFiles) {
   }
 }
 const configureArgs = ['-S', sourceDirectory, '-B', buildDirectory,
-  `-DMUJOCO_ROOT=${mujocoRoot}`, `-DEIGEN_ROOT=${eigenRoot}`, `-DOSQP_ROOT=${osqpRoot}`, `-DQDLDL_ROOT=${qdldlRoot}`]
+  `-DMUJOCO_ROOT=${mujocoRoot}`, `-DEIGEN_ROOT=${eigenRoot}`, `-DOSQP_ROOT=${osqpRoot}`, `-DQDLDL_ROOT=${qdldlRoot}`,
+  `-DD6_NATIVE_VIEWER_POC_BUILD=${nativeViewerPocBuild ? 'ON' : 'OFF'}`]
 if (isWindows) configureArgs.push('-G', 'Visual Studio 17 2022', '-A', 'x64')
 else configureArgs.push('-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release')
 run('cmake', configureArgs)
 run('cmake', ['--build', buildDirectory, ...(isWindows ? ['--config', 'Release'] : []), '--parallel'])
-run('ctest', ['--test-dir', buildDirectory, ...(isWindows ? ['-C', 'Release'] : []), '--output-on-failure'])
+runWithEnvironment('ctest', ['--test-dir', buildDirectory, ...(isWindows ? ['-C', 'Release'] : []), '--output-on-failure'], {
+  ...process.env,
+  D6_NATIVE_MUJOCO_VIEWER_POC: '0',
+})
 if (!existsSync(builtExecutable) || statSync(builtExecutable).size === 0) throw new Error('Release sidecar executable was not produced')
 const bundledExecutable = join(outputDirectory, executableName)
 for (const name of stalePlatformFiles) rmSync(join(outputDirectory, name), { force: true })

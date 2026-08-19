@@ -261,6 +261,23 @@ fn r_clears_motion_then_resets_once() {
 }
 
 #[test]
+fn r_resets_once_while_disarmed_and_does_not_rearm_locomotion() {
+    let sink = FakeSink::ready();
+    let input = controller(&sink);
+    assert!(!input.state().armed);
+    assert!(input.handle_key(NativeKey::Reset, true));
+    assert!(input.state().resetting);
+    wait_until(Duration::from_millis(100), || {
+        sink.reset_count.load(Ordering::Acquire) == 1 && !input.state().resetting
+    });
+    assert_eq!(sink.reset_count.load(Ordering::Acquire), 1);
+    assert!(!input.state().armed);
+    assert!(!input.handle_key(NativeKey::Forward, true));
+    assert_eq!(input.state().forward_velocity, 0.0);
+    input.shutdown();
+}
+
+#[test]
 fn simulation_stop_disarms_and_zeros() {
     let sink = FakeSink::ready();
     let input = controller(&sink);

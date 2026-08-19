@@ -16,6 +16,10 @@
 #include <mujoco/mujoco.h>
 #include <nlohmann/json.hpp>
 
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+#include "native_viewer.hpp"
+#endif
+
 namespace sidecar {
 
 enum class SimulationState { unloaded, loaded, running, paused, stopped };
@@ -192,6 +196,9 @@ class SimulationEngine {
   double control_step_total_ms_{0.0};
   double control_step_max_ms_{0.0};
   nlohmann::json performance_snapshot_;
+#ifdef D6_NATIVE_VIEWER_POC_BUILD
+  NativeViewer native_viewer_;
+#endif
   std::thread physics_thread_;
 };
 

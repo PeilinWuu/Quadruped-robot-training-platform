@@ -7,33 +7,39 @@ import { SimulationView } from './components/SimulationView'
 import { SensorPanel } from './components/SensorPanel'
 import { MapPanel } from './components/MapPanel'
 import { TrainingPanel } from './components/TrainingPanel'
-import { ChartsPanel } from './components/ChartsPanel'
+import { MockResearchChartsSlot } from './components/MockResearchChartsSlot'
 import { RobotPanel } from './components/RobotPanel'
 import { StatusBar } from './components/StatusBar'
 import { AuthScreen } from './components/AuthScreen'
 import { authService, type AuthUser } from './services/authService'
 import { useAppStore } from './store/useAppStore'
+import { MOCK_RESEARCH_CHARTS } from './config/features'
+import { startMockResearchMetrics } from './features/research-charts/mockResearchMetrics'
 import './App.css'
 
 function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [messageApi, holder] = message.useMessage()
-  const { initialize, initializeSimulation, refreshSimulation, shutdownSimulation, tick, appendMetrics } = useAppStore(useShallow((state) => ({
+  const { initialize, initializeSimulation, refreshSimulation, shutdownSimulation, tick, appendMockMetrics } = useAppStore(useShallow((state) => ({
     initialize: state.initialize,
     initializeSimulation: state.initializeSimulation,
     refreshSimulation: state.refreshSimulation,
     shutdownSimulation: state.shutdownSimulation,
     tick: state.tick,
-    appendMetrics: state.appendMetrics,
+    appendMockMetrics: state.appendMockMetrics,
   })))
   const notify = useCallback((text: string) => void messageApi.info(text), [messageApi])
   useEffect(() => { void initialize().catch((error: unknown) => messageApi.error(error instanceof Error ? error.message : '数据初始化失败')) }, [initialize, messageApi])
   useEffect(() => {
     // Mock 模式下驱动计时器和动态图表；组件卸载时必须同时清理定时器与事件监听。
-    const clock = window.setInterval(tick, 1000); const metrics = window.setInterval(appendMetrics, 2500)
+    const clock = window.setInterval(tick, 1000)
+    const stopMockMetrics = startMockResearchMetrics(
+      MOCK_RESEARCH_CHARTS.metricsProducerEnabled,
+      appendMockMetrics,
+    )
     const reserved = (event: Event) => notify(`${(event as CustomEvent<string>).detail}接口已预留，等待后端接入`)
     window.addEventListener('reserved-action', reserved)
-    return () => { window.clearInterval(clock); window.clearInterval(metrics); window.removeEventListener('reserved-action', reserved) }
-  }, [appendMetrics, notify, tick])
+    return () => { window.clearInterval(clock); stopMockMetrics(); window.removeEventListener('reserved-action', reserved) }
+  }, [appendMockMetrics, notify, tick])
   useEffect(() => {
     void initializeSimulation()
     const poll = window.setInterval(() => void refreshSimulation(), 1000)
@@ -45,7 +51,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       void shutdownSimulation()
     }
   }, [initializeSimulation, refreshSimulation, shutdownSimulation])
-  return <div className="app-shell">{holder}<Header user={user} onLogout={onLogout}/><main className="dashboard"><SceneSidebar notify={notify}/><div className="center-column"><SimulationView notify={notify}/><div className="lower-row"><TrainingPanel notify={notify}/><ChartsPanel/></div></div><aside className="right-column"><SensorPanel/><MapPanel/><RobotPanel/></aside></main><StatusBar displayName={user.displayName}/></div>
+  return <div className="app-shell">{holder}<Header user={user} onLogout={onLogout}/><main className="dashboard"><SceneSidebar notify={notify}/><div className="center-column"><SimulationView notify={notify}/><div className="lower-row"><TrainingPanel notify={notify}/><MockResearchChartsSlot/></div></div><aside className="right-column"><SensorPanel/><MapPanel/><RobotPanel/></aside></main><StatusBar displayName={user.displayName}/></div>
 }
 
 function AuthenticatedApp() {

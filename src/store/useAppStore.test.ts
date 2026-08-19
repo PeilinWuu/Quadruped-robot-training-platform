@@ -83,4 +83,13 @@ describe('simulation Zustand boundary', () => {
     expect(cleanup).toHaveBeenCalledTimes(1)
     expect(services.simulation.shutdown).toHaveBeenCalledTimes(1)
   })
+
+  it('does not fetch or append mock research metrics while the feature is disabled', async () => {
+    const getMetrics = vi.spyOn(services.training, 'getMetrics')
+    await useAppStore.getState().initialize()
+    expect(getMetrics).not.toHaveBeenCalled()
+    expect(useAppStore.getState().metrics).toEqual([])
+    useAppStore.getState().appendMockMetrics()
+    expect(useAppStore.getState().metrics).toEqual([])
+  })
 })

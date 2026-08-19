@@ -111,6 +111,20 @@ describe('ManagedSimulationService', () => {
     expect(status.simulationState).toBe('running')
   })
 
+  it('reaps and restarts a failed sidecar before resetting the selected model', async () => {
+    fake = fakeAdapter({
+      state: 'failed', simulationState: 'running', model: MODEL,
+      error: { code: 'SIDECAR_DISCONNECTED', message: 'sidecar exited' },
+    })
+    service = new ManagedSimulationService(async () => fake.adapter)
+    const status = await service.reset()
+    expect(fake.calls).toEqual([
+      'stopSidecar', 'startSidecar', 'loadModel:unitree-go2-menagerie',
+      'subscribe', 'reset', 'start',
+    ])
+    expect(status).toMatchObject({ state: 'ready', simulationState: 'running', model: MODEL })
+  })
+
   it('validates speed before calling the adapter', async () => {
     await expect(service.setSpeed(.24)).rejects.toThrow('0.25')
     await expect(service.setSpeed(4.01)).rejects.toThrow('0.25')

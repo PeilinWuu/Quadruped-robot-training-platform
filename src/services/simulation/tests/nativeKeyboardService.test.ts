@@ -99,4 +99,15 @@ describe('native keyboard frontend bridge', () => {
     expect(listener).toHaveBeenCalledOnce()
     expect(listener).toHaveBeenCalledWith(state)
   })
+
+  it('forwards the GTK reset request to the shared frontend reset path', async () => {
+    const listener = vi.fn()
+    mocks.listen.mockImplementation(async (_name, callback) => {
+      callback({ payload: undefined })
+      return vi.fn()
+    })
+    await nativeKeyboardService.subscribeResetRequested(listener)
+    expect(mocks.listen).toHaveBeenCalledWith('native-keyboard-reset-requested', listener)
+    expect(listener).toHaveBeenCalledOnce()
+  })
 })

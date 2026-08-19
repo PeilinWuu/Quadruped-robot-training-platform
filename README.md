@@ -38,6 +38,17 @@
 - 自主搜索、全局路径规划、局部避障和任务决策。
 - 强化学习或其他真实训练后端。
 - ROS 2、WebSocket 实时网关和实体 Unitree Go2 连接。
+
+真机高层 Sport API 的安全边界位于 `tools/go2_real_gateway/`。该网关默认
+dry-run，只有同时传入 `--live` 和设置 `GO2_REAL_GATEWAY_LIVE=1` 才会向
+`/api/sport/request` 发布；`Move` 按一次性命令执行，并在限定时长后调用
+`StopMove`。它与面向 MuJoCo 的本地 ROS 桥保持分离。
+
+桌面端通过独立的 Tauri 真机进程管理器使用该边界。默认启动仍为 dry-run；
+只有从已加载 Unitree ROS 2 环境的终端设置
+`QUADRUPED_GO2_GATEWAY_LIVE=1` 后重启桌面程序，才允许进入 LIVE。即使在
+LIVE 下，仍必须收到近期 `/lowstate` 或 `/sportmodestate`、完成现场确认并
+手动解锁，才能发送高层动作。
 - Gaussian Splatting 视觉场景与 MuJoCo 碰撞几何的自动配准。
 - 复杂地形、外力扰动、传感器噪声和 Sim-to-Real 验证。
 

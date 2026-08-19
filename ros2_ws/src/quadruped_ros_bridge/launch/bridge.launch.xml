@@ -1,0 +1,3 @@
+<launch>
+  <node pkg="quadruped_ros_bridge" exec="quadruped_ros_bridge" name="quadruped_ros_bridge" output="screen" />
+</launch>

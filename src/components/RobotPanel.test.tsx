@@ -29,9 +29,22 @@ describe('RobotPanel real simulation fields', () => {
 
   it('labels unavailable telemetry instead of presenting mock values as real', () => {
     const html = renderToStaticMarkup(<RobotPanelContent simulation={useAppStore.getState().simulation}/>)
-    expect(html).toContain('电池、CPU 温度、网络信号、真实步态、传感器状态、Actuator telemetry')
+    expect(html).toContain('已接入电池、IMU、足端力、12 关节与 Sport 状态摘要')
     expect(html).toContain('暂未接入')
-    expect(html).toContain('实体机器人未连接')
+    expect(html).toContain('真机在线只由近期实体遥测确认')
     expect(html).toContain('项目测试模型')
+  })
+
+  it('renders the low-rate ROS bridge control summary', () => {
+    const html = renderToStaticMarkup(<RobotPanelContent
+      simulation={useAppStore.getState().simulation}
+      rosBridge={{
+        state: 'running', available: true, controlSource: 'ros', bridgeVersion: '0.1.0',
+        lastCmdVelAgeMs: 42, watchdogState: 'armed', error: null,
+      }}/>)
+    expect(html).toContain('Control Source')
+    expect(html).toContain('Running')
+    expect(html).toContain('42 ms')
+    expect(html).toContain('armed · 300 ms')
   })
 })

@@ -1,0 +1,16 @@
+# Candidate only; never use for control before real standing verification.
+status: UNVERIFIED_UNTIL_REAL_ROBOT
+source: Unitree Go2 official ROS2 motor-state convention; confirm against field data
+mapping:
+  - {motor_index: 0, joint_name: FL_hip, leg: FL, joint_type: hip, simulation_joint_name: FL_hip, confirmed: false}
+  - {motor_index: 1, joint_name: FL_thigh, leg: FL, joint_type: thigh, simulation_joint_name: FL_thigh, confirmed: false}
+  - {motor_index: 2, joint_name: FL_calf, leg: FL, joint_type: calf, simulation_joint_name: FL_calf, confirmed: false}
+  - {motor_index: 3, joint_name: FR_hip, leg: FR, joint_type: hip, simulation_joint_name: FR_hip, confirmed: false}
+  - {motor_index: 4, joint_name: FR_thigh, leg: FR, joint_type: thigh, simulation_joint_name: FR_thigh, confirmed: false}
+  - {motor_index: 5, joint_name: FR_calf, leg: FR, joint_type: calf, simulation_joint_name: FR_calf, confirmed: false}
+  - {motor_index: 6, joint_name: RL_hip, leg: RL, joint_type: hip, simulation_joint_name: RL_hip, confirmed: false}
+  - {motor_index: 7, joint_name: RL_thigh, leg: RL, joint_type: thigh, simulation_joint_name: RL_thigh, confirmed: false}
+  - {motor_index: 8, joint_name: RL_calf, leg: RL, joint_type: calf, simulation_joint_name: RL_calf, confirmed: false}
+  - {motor_index: 9, joint_name: RR_hip, leg: RR, joint_type: hip, simulation_joint_name: RR_hip, confirmed: false}
+  - {motor_index: 10, joint_name: RR_thigh, leg: RR, joint_type: thigh, simulation_joint_name: RR_thigh, confirmed: false}
+  - {motor_index: 11, joint_name: RR_calf, leg: RR, joint_type: calf, simulation_joint_name: RR_calf, confirmed: false}

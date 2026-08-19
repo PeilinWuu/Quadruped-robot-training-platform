@@ -6,12 +6,29 @@ import { SIMULATION_MODELS } from '../services/simulation/types'
 import { simulationService } from '../services/simulation/simulationService'
 import { KeyboardLocomotionController, type DemoSpeed, type KeyboardLocomotionState } from '../services/simulation/KeyboardLocomotionController'
 import { editableElement, keyboardUiState, nativeKeyboardService, shouldAutoDisarmKeyboard, type NativeKeyboardDiagnostics } from '../services/simulation/nativeKeyboardService'
+import { rosBridgeService, rosPerfDiagnostic, UNAVAILABLE_ROS_BRIDGE, type ControlSource, type RosBridgeStatus } from '../services/simulation/rosBridgeService'
+import { RealRobotControls } from './RealRobotControls'
+import { announceKeyboardControlMode, KEYBOARD_CONTROL_MODE_EVENT, type KeyboardControlMode } from '../services/control/keyboardControlMode'
 
 const number = (value: number) => value.toFixed(3)
 const vector = (value: [number, number, number]) => value.map(number).join(', ')
 const latency = (later: number, earlier: number) => later >= earlier && earlier > 0 ? `${((later - earlier) / 1000).toFixed(2)} ms` : '—'
+const rosStateLabel = (state: RosBridgeStatus['state']) => ({ unavailable: 'Unavailable', ready: 'Ready', running: 'Running', fault: 'Fault' })[state]
 
-export function RobotPanel() {
+export function RobotPanel({ diagnostic = false }: { diagnostic?: boolean }) {
+  if (diagnostic) return <DiagnosticRobotPanel/>
+  return <RuntimeRobotPanel/>
+}
+
+function DiagnosticRobotPanel() {
+  const counters = window.__D6_CHROMIUM_POC__
+  if (counters) counters.robotPanelRenders += 1
+  const simulation = useAppStore((state) => state.simulation)
+  return <RobotPanelContent simulation={simulation}/>
+}
+
+function RuntimeRobotPanel() {
+  rosPerfDiagnostic.recordRender()
   const simulation = useAppStore((state) => state.simulation)
   const reset = useAppStore((state) => state.resetSimulation)
   const clearEvent = useAppStore((state) => state.clearLatestCollisionEvent)
@@ -20,10 +37,12 @@ export function RobotPanel() {
   const nativeModeRef = useRef(false)
   const [nativeMode, setNativeMode] = useState(false)
   const [nativeDiagnostics, setNativeDiagnostics] = useState<NativeKeyboardDiagnostics | null>(null)
+  const [rosBridge, setRosBridge] = useState<RosBridgeStatus>(UNAVAILABLE_ROS_BRIDGE)
   const [keyboard, setKeyboard] = useState<KeyboardLocomotionState>({ enabled: false, resetting: false, stopReason: null, speed: 'low', forwardVelocity: 0, yawRate: 0 })
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | null = null
+    let unlistenReset: (() => void) | null = null
     const focusIn = (event: FocusEvent) => {
       if (editableElement(event.target)) void nativeKeyboardService.setInputSuppressed(true).then((state) => !disposed && setKeyboard(keyboardUiState(state)))
     }
@@ -37,6 +56,8 @@ export function RobotPanel() {
         setNativeMode(true)
         unlisten = await nativeKeyboardService.subscribe((state) => { if (!disposed) setKeyboard(keyboardUiState(state)) })
         if (disposed) { unlisten(); return }
+        unlistenReset = await nativeKeyboardService.subscribeResetRequested(() => { if (!disposed) void reset() })
+        if (disposed) { unlistenReset(); return }
         const state = await nativeKeyboardService.state()
         if (!disposed) setKeyboard(keyboardUiState(state))
         document.addEventListener('focusin', focusIn)
@@ -56,11 +77,52 @@ export function RobotPanel() {
       document.removeEventListener('focusin', focusIn)
       document.removeEventListener('focusout', focusOut)
       unlisten?.()
+      unlistenReset?.()
       if (nativeModeRef.current) void nativeKeyboardService.disarm()
       controllerRef.current?.dispose()
       controllerRef.current = null
       nativeModeRef.current = false
     }
+  }, [reset])
+  useEffect(() => {
+    const modeChanged = (event: Event) => {
+      if ((event as CustomEvent<KeyboardControlMode>).detail !== 'real') return
+      if (nativeModeRef.current) void nativeKeyboardService.disarm().then((state) => setKeyboard(keyboardUiState(state)))
+      else if (controllerRef.current?.isEnabled()) controllerRef.current.disable('已切换到真机键盘控制')
+    }
+    window.addEventListener(KEYBOARD_CONTROL_MODE_EVENT, modeChanged)
+    return () => window.removeEventListener(KEYBOARD_CONTROL_MODE_EVENT, modeChanged)
+  }, [])
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void rosBridgeService.status().then((status) => { if (!disposed) { rosPerfDiagnostic.recordStateUpdate(); setRosBridge(status) } })
+    void rosBridgeService.subscribe((status) => { if (!disposed) { rosPerfDiagnostic.recordStateUpdate(); setRosBridge(status) } }).then((cleanup) => {
+      if (disposed) cleanup()
+      else unlisten = cleanup
+    })
+    return () => { disposed = true; unlisten?.() }
+  }, [])
+  useEffect(() => {
+    if (!rosPerfDiagnostic.enabled()) return
+    let previous = rosPerfDiagnostic.snapshot()
+    let previousAt = performance.now()
+    const timer = globalThis.setInterval(() => {
+      const current = rosPerfDiagnostic.snapshot()
+      const now = performance.now()
+      const elapsed = Math.max((now - previousAt) / 1000, 0.001)
+      console.info('D6_ROS_PERF_DIAGNOSTIC', {
+        component: 'frontend', time_s: (now - current.startedAt) / 1000,
+        active_listeners: current.activeListeners, max_active_listeners: current.maxActiveListeners,
+        ros_event_hz: (current.events - previous.events) / elapsed,
+        ros_state_update_hz: (current.stateUpdates - previous.stateUpdates) / elapsed,
+        robot_panel_render_hz: (current.renders - previous.renders) / elapsed,
+        event_count: current.events, state_update_count: current.stateUpdates, render_count: current.renders,
+      })
+      previous = current
+      previousAt = now
+    }, 1000)
+    return () => globalThis.clearInterval(timer)
   }, [])
   const locomotionAllowed = simulation.selectedModelId === 'unitree-go2-menagerie'
     && simulation.simulationState === 'running' && !simulation.latestTelemetry?.collision.isFallen
@@ -71,9 +133,12 @@ export function RobotPanel() {
       if (controllerRef.current?.isEnabled()) controllerRef.current.disable('仿真状态变化，已自动停止')
     }
   }, [keyboard.enabled, keyboard.resetting, locomotionAllowed])
-  return <RobotPanelContent simulation={simulation} keyboard={keyboard}
+  return <RobotPanelContent simulation={simulation} keyboard={keyboard} rosBridge={rosBridge}
     nativeMode={nativeMode} nativeDiagnostics={nativeDiagnostics}
+    onControlSource={(source) => void rosBridgeService.setControlSource(source).then(setRosBridge)}
     onToggleKeyboard={() => {
+      if (rosBridge.controlSource !== 'manual') return
+      if (!keyboard.enabled) announceKeyboardControlMode('simulation')
       if (nativeModeRef.current) {
         const action = keyboard.enabled ? nativeKeyboardService.disarm() : locomotionAllowed ? nativeKeyboardService.arm() : null
         if (action) void action.then((state) => setKeyboard(keyboardUiState(state)))
@@ -88,9 +153,10 @@ export function RobotPanel() {
     onReset={() => void reset()} onClearEvent={clearEvent}/>
 }
 
-export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiagnostics, onToggleKeyboard, onSpeed, onFollow, onReset, onClearEvent, onRefreshNativeDiagnostics }: {
+export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiagnostics, rosBridge = UNAVAILABLE_ROS_BRIDGE, onControlSource, onToggleKeyboard, onSpeed, onFollow, onReset, onClearEvent, onRefreshNativeDiagnostics }: {
   simulation: SimulationUiState; keyboard?: KeyboardLocomotionState; onToggleKeyboard?: () => void
   nativeMode?: boolean; nativeDiagnostics?: NativeKeyboardDiagnostics | null
+  rosBridge?: RosBridgeStatus; onControlSource?: (source: ControlSource) => void
   onSpeed?: (speed: DemoSpeed) => void; onFollow?: (enabled: boolean) => void
   onReset?: () => void; onClearEvent?: () => void; onRefreshNativeDiagnostics?: () => void
 }) {
@@ -111,7 +177,7 @@ export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiag
       <div className="robot-model"><div className="model-body"><Bot size={38}/></div><span>{simulation.model?.modelId ?? '暂未加载模型'}</span></div>
       <dl>
         <div><dt>数据源</dt><dd>{telemetry ? 'MuJoCo 虚拟机器人' : '等待虚拟遥测'}</dd></div>
-        <div><dt>实体机器人</dt><dd>未连接</dd></div>
+        <div><dt>实体机器人</dt><dd>以近期真机遥测判定</dd></div>
         <div><dt>Simulation</dt><dd>{simulation.simulationState}</dd></div>
         <div><dt>当前模型</dt><dd>{description.displayName}</dd></div>
         <div><dt>模型来源</dt><dd>{description.source}</dd></div>
@@ -131,6 +197,19 @@ export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiag
       <div className="robot-telemetry-table"><div className="head"><b>Joint</b><b>Pos</b><b>Vel</b><b>Torque</b><b>Force</b><b>Target</b><b>Limit</b></div>{telemetry?.joints.map((joint) => <div key={joint.name}><i>{joint.name}</i><span>{number(joint.position)}</span><span>{number(joint.velocity)}</span><span>{number(joint.actuatorTorque)}</span><span>{number(joint.actuatorForce)}</span><span>{number(joint.controlTarget)}</span><span>{joint.limited ? `${number(joint.lowerLimit!)}…${number(joint.upperLimit!)}` : 'unlimited'}</span></div>) ?? pose?.joints.map((joint) => <div key={joint.name}><i>{joint.name}</i><span>{number(joint.position)}</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span><span>暂未接入</span></div>) ?? <p>暂未接入</p>}</div>
     </details>
     <details className="robot-telemetry-details" open><summary>四足接触 · 世界 Y-up</summary><div className="robot-feet-grid">{telemetry?.feet.map((foot) => <span key={foot.name}><b>{foot.name} · {foot.inContact ? '接触' : '未接触'}</b><i>{foot.contactCount} 点 · {number(foot.normalForce)} N</i><i>Force {vector(foot.forceWorld)}</i></span>) ?? <p>暂未接入</p>}</div></details>
+    <section className="robot-unavailable ros-control-source">
+      <h4><RadioTower size={13}/>ROS 2 本机桥接</h4>
+      <label>Control Source <select value={rosBridge.controlSource} onChange={(event) => onControlSource?.(event.target.value as ControlSource)}><option value="manual">Manual Keyboard</option><option value="ros" disabled={!rosBridge.available}>ROS 2</option></select></label>
+      <dl className="robot-performance">
+        <div><dt>ROS 2</dt><dd>{rosStateLabel(rosBridge.state)}</dd></div>
+        <div><dt>Bridge availability</dt><dd>{rosBridge.available ? `Ready${rosBridge.bridgeVersion ? ` · ${rosBridge.bridgeVersion}` : ''}` : 'Unavailable'}</dd></div>
+        <div><dt>Control source</dt><dd>{rosBridge.controlSource}</dd></div>
+        <div><dt>Last cmd_vel age</dt><dd>{rosBridge.lastCmdVelAgeMs == null ? '—' : `${rosBridge.lastCmdVelAgeMs} ms`}</dd></div>
+        <div><dt>Watchdog</dt><dd>{rosBridge.watchdogState} · 300 ms</dd></div>
+      </dl>
+      {rosBridge.error && <p className="collision-alert">ROS bridge: {rosBridge.error}</p>}
+    </section>
+    <RealRobotControls/>
     <details className="robot-telemetry-details flat-ground-collision" open><summary>平地碰撞演示</summary>
       {collision ? <>
         <dl className="robot-performance">
@@ -148,7 +227,7 @@ export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiag
         <div className="collision-demo-actions"><button type="button" disabled={!onReset || simulation.busy || !simulation.model} onClick={onReset}>重置机器人</button><button type="button" disabled={!onClearEvent || !collisionEvent} onClick={onClearEvent}>清除最近事件</button></div>
         <section className={`locomotion-demo ${keyboard?.enabled ? 'locomotion-demo--active' : ''}`}>
           <div className="locomotion-demo__actions">
-            <button type="button" disabled={!onToggleKeyboard || (!keyboard?.enabled && !keyboardAllowed)} onClick={onToggleKeyboard}>{keyboard?.enabled ? '解除键盘控制' : '启用键盘控制'}</button>
+            <button type="button" disabled={!onToggleKeyboard || rosBridge.controlSource !== 'manual' || (!keyboard?.enabled && !keyboardAllowed)} onClick={onToggleKeyboard}>{keyboard?.enabled ? '解除键盘控制' : '启用键盘控制'}</button>
             <label>演示速度<select value={keyboard?.speed ?? 'low'} onChange={(event) => onSpeed?.(event.target.value as DemoSpeed)}><option value="low">低</option><option value="medium">中</option></select></label>
             <label><input type="checkbox" checked={simulation.followRobot} onChange={(event) => onFollow?.(event.target.checked)}/> 跟随机器人</label>
             {nativeMode && <button type="button" onClick={onRefreshNativeDiagnostics}>刷新 native 诊断</button>}
@@ -184,7 +263,7 @@ export function RobotPanelContent({ simulation, keyboard, nativeMode, nativeDiag
     </details>
     <details className="robot-telemetry-details"><summary>仿真性能（非硬实时保证）</summary>{telemetry ? <dl className="robot-performance"><div><dt>Physics / Control</dt><dd>{number(telemetry.performance.physicsFrequencyHz)} / {number(telemetry.performance.controlFrequencyHz)} Hz</dd></div><div><dt>Pose / Telemetry</dt><dd>{number(telemetry.performance.posePublishFrequencyHz)} / {number(telemetry.performance.telemetryPublishFrequencyHz)} Hz</dd></div><div><dt>Real-time factor</dt><dd>{number(telemetry.performance.realTimeFactor)}</dd></div><div><dt>Physics mean/max</dt><dd>{number(telemetry.performance.physicsStepMeanMs)} / {number(telemetry.performance.physicsStepMaxMs)} ms</dd></div><div><dt>Control mean/max</dt><dd>{number(telemetry.performance.controlStepMeanMs)} / {number(telemetry.performance.controlStepMaxMs)} ms</dd></div><div><dt>Dropped pose/telemetry</dt><dd>{telemetry.performance.droppedPoseEvents} / {telemetry.performance.droppedTelemetryEvents}</dd></div></dl> : <p>暂未接入</p>}</details>
     <section className="robot-unavailable"><h4><Gauge size={13}/>虚拟运动命令</h4><p>{command ? `${command.mode} · [${number(command.forwardVelocity)}, ${number(command.lateralVelocity)}, ${number(command.yawRate)}] · ${command.timedOut ? '已超时' : '有效'} · ${command.appliedByController ? '控制器已执行' : '仅接收，未执行'} · ${command.controllerAvailability}` : '暂未发送'}</p></section>
-    <section className="robot-unavailable"><h4><Cpu size={13}/>尚未接入的实体遥测</h4><p>电池、CPU 温度、网络信号、真实步态、传感器状态、Actuator telemetry、实体 Go2 在线状态、相机、LiDAR、真机故障码：<b>暂未接入</b></p></section>
-    <section className="robot-unavailable"><h4><RadioTower size={13}/>连接边界</h4><p><b>实体机器人未连接</b>；当前数据只来自 MuJoCo 仿真。{description.description}</p></section>
+    <section className="robot-unavailable"><h4><Cpu size={13}/>实体遥测边界</h4><p>已接入电池、IMU、足端力、12 关节与 Sport 状态摘要。CPU 温度、网络信号、相机、完整 LiDAR 数据和厂商故障语义：<b>暂未接入</b></p></section>
+    <section className="robot-unavailable"><h4><RadioTower size={13}/>连接边界</h4><p>真机在线只由近期实体遥测确认；MuJoCo 与实体控制链路保持隔离。{description.description}</p></section>
   </Panel>
 }

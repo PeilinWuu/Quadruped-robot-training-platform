@@ -1,0 +1,7 @@
+# Plan only; tools never execute these commands.
+standing: {duration_s: 30, repeat: 3}
+forward: {vx: [0.05, 0.10, 0.15, 0.20]}
+backward: {vx: [-0.05, -0.10]}
+yaw: {wz: [-0.30, -0.20, -0.10, 0.10, 0.20, 0.30]}
+forward_yaw: [[0.10, 0.20], [0.10, -0.20], [0.15, 0.20], [0.15, -0.20]]
+protocol: '5s standing; 10-20s motion; 5s standing; 3 repeats'

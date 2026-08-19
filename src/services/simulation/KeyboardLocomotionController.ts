@@ -1,4 +1,5 @@
 import type { MotionCommand } from './types'
+import type { MotionIntent, MotionIntentAdapter } from '../control/motionIntent'
 
 export type DemoSpeed = 'low' | 'medium'
 export interface KeyboardLocomotionState {
@@ -25,7 +26,22 @@ export interface KeyboardLocomotionDiagnostics {
 type DesiredMotion = {
   generation: number
   version: number
-  command: MotionCommand | null
+  intent: MotionIntent | null
+}
+
+class SimulationMotionIntentAdapter implements MotionIntentAdapter {
+  private sequence = 1
+  private readonly transport: KeyboardLocomotionTransport
+  constructor(transport: KeyboardLocomotionTransport) { this.transport = transport }
+  apply(intent: MotionIntent | null): Promise<unknown> {
+    if (!intent) return this.transport.clearMotionCommand()
+    const command: MotionCommand = {
+      sequence: this.sequence++, mode: 'locomotion',
+      forwardVelocity: intent.forwardVelocity, lateralVelocity: intent.lateralVelocity,
+      yawRate: intent.yawRate, bodyHeight: .3, validForMs: 250,
+    }
+    return this.transport.setMotionCommand(command)
+  }
 }
 
 const LOW = { forward: .12, reverse: -.08, yaw: .24 }
@@ -54,7 +70,6 @@ function editableTarget(target: EventTarget | null): boolean {
 
 export class KeyboardLocomotionController {
   private readonly pressed = new Set<string>()
-  private sequence = 1
   private timer: number | null = null
   private enabled = false
   private disposed = false
@@ -67,6 +82,7 @@ export class KeyboardLocomotionController {
   private speed: DemoSpeed = 'low'
   private stopReason: string | null = null
   private readonly transport: KeyboardLocomotionTransport
+  private readonly intentAdapter: MotionIntentAdapter
   private readonly onState: (state: KeyboardLocomotionState) => void
   private readonly hostWindow: Window
   private readonly hostDocument: Document
@@ -81,7 +97,7 @@ export class KeyboardLocomotionController {
     hostWindow: Window = window,
     hostDocument: Document = document,
   ) {
-    this.transport = transport; this.onState = onState
+    this.transport = transport; this.intentAdapter = new SimulationMotionIntentAdapter(transport); this.onState = onState
     this.hostWindow = hostWindow; this.hostDocument = hostDocument; this.publish()
   }
 
@@ -138,21 +154,19 @@ export class KeyboardLocomotionController {
   private readonly requestHeartbeat = (): void => {
     if (!this.enabled || this.disposed || this.resetting) return
     const target = this.target()
-    const command: MotionCommand = { sequence: this.sequence++, mode: 'locomotion',
-      forwardVelocity: target.forwardVelocity, lateralVelocity: 0, yawRate: target.yawRate,
-      bodyHeight: .3, validForMs: 250 }
-    this.setDesired(command)
+    this.setDesired({ forwardVelocity: target.forwardVelocity, lateralVelocity: 0, yawRate: target.yawRate,
+      source: 'keyboard', createdAtMs: Date.now() })
   }
 
   private requestClear(): void { this.setDesired(null) }
 
-  private setDesired(command: MotionCommand | null): void {
+  private setDesired(intent: MotionIntent | null): void {
     this.diagnostics.requested += 1
     if (this.desired) this.diagnostics.coalesced += 1
     this.desired = {
       generation: this.generation,
       version: ++this.desiredVersion,
-      command,
+      intent,
     }
     this.drainDesired()
   }
@@ -166,9 +180,7 @@ export class KeyboardLocomotionController {
     this.diagnostics.inFlight = 1
     this.diagnostics.maxInFlight = Math.max(this.diagnostics.maxInFlight, 1)
     const startedAt = performance.now()
-    const invoke = desired.command
-      ? this.transport.setMotionCommand(desired.command)
-      : this.transport.clearMotionCommand()
+    const invoke = this.intentAdapter.apply(desired.intent)
     const settled = invoke.then(
       () => { this.diagnostics.completed += 1 },
       () => {

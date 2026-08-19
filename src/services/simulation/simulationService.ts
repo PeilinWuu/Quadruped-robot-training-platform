@@ -198,7 +198,25 @@ export class ManagedSimulationService {
       const adapter = await this.adapterForUse()
       const before = await adapter.getStatus()
       const resumeAfterReset = before.simulationState === 'running'
+      this.latestPose = null
       this.telemetry.clear()
+
+      // A controller failure can terminate the sidecar, leaving no process that
+      // can accept the ordinary pause/reset commands. Treat reset as a recovery
+      // transaction in that case: reap the old process, start a clean sidecar,
+      // restore the selected model, then continue with the normal reset flow.
+      if (before.state !== 'ready') {
+        if (!['idle', 'unavailable'].includes(before.state)) await adapter.stopSidecar()
+        await adapter.startSidecar()
+        await adapter.loadModel(this.selectedModelId, 'flat-ground-v1')
+        await this.ensureSubscription(adapter)
+        await adapter.resetSimulation()
+        const pose = await adapter.getLatestPose()
+        if (pose) this.dispatch({ type: 'pose', payload: pose })
+        if (resumeAfterReset) await adapter.startSimulation()
+        return adapter.getStatus()
+      }
+
       if (resumeAfterReset) await adapter.pauseSimulation()
       await adapter.resetSimulation()
       const pose = await adapter.getLatestPose()

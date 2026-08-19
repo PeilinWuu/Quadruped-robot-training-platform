@@ -8,7 +8,7 @@ use super::{
         RobotTelemetry, SimulationEvent, SimulationState, TelemetryConfig, MAX_LINE_BYTES,
     },
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
@@ -53,6 +53,13 @@ pub enum LifecycleState {
     Failed,
     Crashed,
     Unresponsive,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlSource {
+    Manual,
+    Ros,
 }
 impl LifecycleState {
     fn can_start(self) -> bool {
@@ -139,6 +146,7 @@ struct ManagerInner {
     protocol_errors: u8,
     protocol_error_total: u64,
     first_protocol_failure: Option<ProtocolFailureDiagnostic>,
+    control_source: ControlSource,
 }
 struct ManagerCore {
     inner: Mutex<ManagerInner>,
@@ -182,6 +190,7 @@ impl SimulationManager {
                     protocol_errors: 0,
                     protocol_error_total: 0,
                     first_protocol_failure: None,
+                    control_source: ControlSource::Manual,
                 }),
             }),
         }
@@ -202,7 +211,8 @@ impl SimulationManager {
 
     pub(crate) fn native_motion_available(&self) -> bool {
         let inner = self.core.inner.lock().unwrap_or_else(|p| p.into_inner());
-        inner.state == LifecycleState::Ready
+        inner.control_source == ControlSource::Manual
+            && inner.state == LifecycleState::Ready
             && inner.simulation_state == SimulationState::Running
             && inner
                 .model
@@ -433,6 +443,7 @@ impl SimulationManager {
         }
         Err(SimulationError::timeout("SIDECAR_RESET_POSE_TIMEOUT"))
     }
+    #[cfg(test)]
     pub(crate) fn reset_preserving_run_state(&self) -> Result<SimulationState, SimulationError> {
         let resume_after_reset = self.status().simulation_state == SimulationState::Running;
         if resume_after_reset {
@@ -472,6 +483,25 @@ impl SimulationManager {
         &self,
         command: MotionCommand,
     ) -> Result<MotionCommandStatus, SimulationError> {
+        self.set_motion_command_for_source(command, ControlSource::Manual)
+    }
+    pub(crate) fn set_ros_motion_command(
+        &self,
+        command: MotionCommand,
+    ) -> Result<MotionCommandStatus, SimulationError> {
+        self.set_motion_command_for_source(command, ControlSource::Ros)
+    }
+    fn set_motion_command_for_source(
+        &self,
+        command: MotionCommand,
+        source: ControlSource,
+    ) -> Result<MotionCommandStatus, SimulationError> {
+        if self.control_source() != source {
+            return Err(SimulationError::new(
+                "CONTROL_SOURCE_MISMATCH",
+                "The motion command does not own the active control source.",
+            ));
+        }
         self.require_ready()?;
         command.validate()?;
         match self.request(ProtocolCommand::SetMotionCommand(command), COMMAND_TIMEOUT)? {
@@ -496,13 +526,24 @@ impl SimulationManager {
             other => response_error(other),
         }
     }
-    #[cfg(test)]
-    pub fn latest_telemetry(&self) -> Option<RobotTelemetry> {
+    pub(crate) fn latest_telemetry(&self) -> Option<RobotTelemetry> {
         self.core
             .inner
             .lock()
             .ok()
             .and_then(|inner| inner.latest_telemetry.clone())
+    }
+    pub fn control_source(&self) -> ControlSource {
+        self.core
+            .inner
+            .lock()
+            .map(|inner| inner.control_source)
+            .unwrap_or(ControlSource::Manual)
+    }
+    pub(crate) fn set_control_source(&self, source: ControlSource) {
+        if let Ok(mut inner) = self.core.inner.lock() {
+            inner.control_source = source;
+        }
     }
     pub fn get_latest_telemetry(&self) -> Result<RobotTelemetry, SimulationError> {
         self.require_ready()?;

@@ -4,8 +4,12 @@ import { Dropdown, Segmented, Select, Tooltip } from 'antd'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore, type SimulationActionResult } from '../store/useAppStore'
 import { SIMULATION_MODELS, type MotionCommandMode, type SimulationModelId } from '../services/simulation/types'
+import { NATIVE_MUJOCO_VIEWER_POC } from '../config/features'
 
 const GaussianViewport = lazy(() => import('../features/gaussian-viewer/GaussianViewport'))
+// D6_WEBKIT_MEM_DIAGNOSTIC: build-time-only gate for the B/I isolation runs.
+// It is disabled by default and must never be enabled in a production package.
+const diagnosticViewerDisabled = import.meta.env.VITE_D6_WEBKIT_MEM_DISABLE_VIEWER === '1'
 
 export function SimulationView({ notify }: { notify: (text: string) => void }) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
@@ -97,7 +101,9 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
     {mode === 'locomotion' && <p className="motion-command-warning">go2-convex-mpc-v1 仅用于 Go2 + flat-ground-v1；MuJoCo仿真专用Convex MPC，不代表实体Go2控制器。侧移尚未接入。</p>}
     <div className="motion-command-actions"><button disabled={!commandValid || simulation.busy || !simulation.desktop || !simulation.model} onClick={() => void sendTarget()}>发送目标</button><button disabled={simulation.busy || !simulation.desktop || !simulation.model} onClick={() => void run(clearMotion, '目标已清除，恢复站立保持')}>清除目标</button></div>
   </details>
-  <div className="sim-viewport"><Suspense fallback={<div className="gaussian-viewport__loading">正在加载 GPU 视口模块</div>}><GaussianViewport/></Suspense>{simulation.simulationState !== 'running' && <div className="sim-overlay sim-overlay--simulation"><div>{simulation.simulationState === 'paused' ? <Pause size={30} /> : simulation.simulationState === 'unloaded' ? <Play size={28}/> : <Square size={28} />}</div><strong>{simulation.simulationState === 'paused' ? '仿真已暂停' : simulation.simulationState === 'unloaded' ? '等待启动 MuJoCo' : '物理仿真已停止'}</strong>{simulation.lastError ? <small>{simulation.lastError}</small> : null}</div>}
+  <div className="sim-viewport">{diagnosticViewerDisabled || NATIVE_MUJOCO_VIEWER_POC
+    ? <div className="gaussian-viewport__loading">{NATIVE_MUJOCO_VIEWER_POC ? 'MuJoCo Native Viewer POC · PlayCanvas 动态视口未挂载' : 'D6 memory diagnostic · Viewer 未挂载'}</div>
+    : <Suspense fallback={<div className="gaussian-viewport__loading">正在加载 GPU 视口模块</div>}><GaussianViewport/></Suspense>}{simulation.simulationState !== 'running' && <div className="sim-overlay sim-overlay--simulation"><div>{simulation.simulationState === 'paused' ? <Pause size={30} /> : simulation.simulationState === 'unloaded' ? <Play size={28}/> : <Square size={28} />}</div><strong>{simulation.simulationState === 'paused' ? '仿真已暂停' : simulation.simulationState === 'unloaded' ? '等待启动 MuJoCo' : '物理仿真已停止'}</strong>{simulation.lastError ? <small>{simulation.lastError}</small> : null}</div>}
   {sensor && <div className="telemetry"><strong>环境检测 · MOCK</strong><span>温度 <b>{sensor.temperature}°C</b></span><span>烟雾 <b>{sensor.smoke}</b></span><span>可见度 <b>{sensor.visibility} m</b></span><span>CO 浓度 <b>{sensor.co} ppm</b></span><span>氧浓度 <b>{sensor.oxygen}%</b></span></div>}
   <div className="sim-actions">{['添加目标', '清除目标', '设置禁区', '清除路径', '标记点', '测量距离'].map((label) => <button key={label} onClick={() => notify(`${label}接口已预留，等待仿真引擎接入`)}><Crosshair size={13} />{label}</button>)}</div></div></section>
 }
