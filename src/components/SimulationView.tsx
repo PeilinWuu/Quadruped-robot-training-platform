@@ -89,7 +89,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
   </div><Dropdown menu={{ items: [{ key: 'engine', label: 'PlayCanvas / MuJoCo' }, { key: 'stream', label: 'ROS / WebSocket 视频流预留' }] }}><button><Expand size={15} />画面源</button></Dropdown></div>
   <details className="motion-command-panel"><summary>虚拟运动指令 <span>{simulation.latestMotionCommand?.timedOut ? '已超时' : simulation.latestMotionCommand ? '目标已接收' : '待发送'}</span></summary>
     <div className="motion-command-grid">
-      <label>控制模式<select value={mode} onChange={(event) => changeMode(event.target.value as MotionCommandMode)}><option value="stand">站立保持</option><option value="locomotion">Convex MPC（D5V-MPC-1）</option></select></label>
+      <label>控制模式<select value={mode} onChange={(event) => changeMode(event.target.value as MotionCommandMode)}><option value="stand">站立保持</option><option value="locomotion">轻量运动动画</option></select></label>
       <label>前向速度（m/s，-0.20～0.30）<input type="number" min="-0.2" max="0.3" step="0.01" disabled={mode === 'stand'} value={mode === 'stand' ? 0 : forward} onChange={(event) => setForward(event.currentTarget.valueAsNumber)}/></label>
       <label>横向速度（本阶段固定 0）<input type="number" value={0} disabled/></label>
       <label>偏航角速度（rad/s，-0.50～0.50）<input type="number" min="-0.5" max="0.5" step="0.05" disabled={mode === 'stand'} value={mode === 'stand' ? 0 : yaw} onChange={(event) => setYaw(event.currentTarget.valueAsNumber)}/></label>
@@ -98,7 +98,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
       <label>遥测频率（Hz，10～100）<input type="number" min="10" max="100" step="10" value={telemetryRate} onChange={(event) => setTelemetryRateValue(event.currentTarget.valueAsNumber)} onBlur={() => void run(() => setTelemetryRate(telemetryRate), '遥测频率已更新')}/></label>
       <div className="motion-command-status"><span>序列 {simulation.latestMotionCommand?.sequence ?? sequence}</span><span>年龄 {simulation.latestMotionCommand ? `${simulation.latestMotionCommand.ageMs.toFixed(0)} ms` : '—'}</span><span>超时 {simulation.latestMotionCommand?.timedOut ? '是' : '否'}</span><span>控制器执行 {simulation.latestMotionCommand?.appliedByController ? '是' : '否'}</span></div>
     </div>
-    {mode === 'locomotion' && <p className="motion-command-warning">go2-convex-mpc-v1 仅用于 Go2 + flat-ground-v1；MuJoCo仿真专用Convex MPC，不代表实体Go2控制器。侧移尚未接入。</p>}
+    {mode === 'locomotion' && <p className="motion-command-warning">坐标按 vx/vy/yaw 直接积分，关节仅播放程序化步态动画；不执行 MPC、力学求解或实体 Go2 底层控制复现。</p>}
     <div className="motion-command-actions"><button disabled={!commandValid || simulation.busy || !simulation.desktop || !simulation.model} onClick={() => void sendTarget()}>发送目标</button><button disabled={simulation.busy || !simulation.desktop || !simulation.model} onClick={() => void run(clearMotion, '目标已清除，恢复站立保持')}>清除目标</button></div>
   </details>
   <div className="sim-viewport">{diagnosticViewerDisabled || NATIVE_MUJOCO_VIEWER_POC

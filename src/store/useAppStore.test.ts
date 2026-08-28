@@ -24,7 +24,7 @@ describe('simulation Zustand boundary', () => {
     vi.restoreAllMocks()
     useAppStore.setState((state) => ({ simulation: {
       ...state.simulation, processState: 'idle', simulationState: 'unloaded', model: null,
-      speed: 1, lastError: null, latestPose: null, busy: false,
+      speed: 1, lastError: null, latestPose: null, latestSpatialState: null, busy: false,
     } }))
   })
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
@@ -68,6 +68,7 @@ describe('simulation Zustand boundary', () => {
     expect(poseUpdates).toBeLessThanOrEqual(2)
     expect(useAppStore.getState().simulation.latestPose?.sequence).toBe(59)
     expect(useAppStore.getState().simulation.latestPose?.joints).toHaveLength(12)
+    expect(useAppStore.getState().simulation.latestSpatialState?.odomToBase.transform.translation).toEqual([1, -3, 2])
     unsubscribe()
   })
 

@@ -4,8 +4,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { Header } from './components/Header'
 import { SceneSidebar } from './components/SceneSidebar'
 import { SimulationView } from './components/SimulationView'
-import { SensorPanel } from './components/SensorPanel'
-import { MapPanel } from './components/MapPanel'
 import { TrainingPanel } from './components/TrainingPanel'
 import { MockResearchChartsSlot } from './components/MockResearchChartsSlot'
 import { RobotPanel } from './components/RobotPanel'
@@ -51,7 +49,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       void shutdownSimulation()
     }
   }, [initializeSimulation, refreshSimulation, shutdownSimulation])
-  return <div className="app-shell">{holder}<Header user={user} onLogout={onLogout}/><main className="dashboard"><SceneSidebar notify={notify}/><div className="center-column"><SimulationView notify={notify}/><div className="lower-row"><TrainingPanel notify={notify}/><MockResearchChartsSlot/></div></div><aside className="right-column"><SensorPanel/><MapPanel/><RobotPanel/></aside></main><StatusBar displayName={user.displayName}/></div>
+  return <div className="app-shell">{holder}<Header user={user} onLogout={onLogout}/><main className="dashboard"><SceneSidebar notify={notify}/><div className="center-column"><SimulationView notify={notify}/><div className="lower-row"><TrainingPanel notify={notify}/><MockResearchChartsSlot/></div></div><aside className="right-column"><RobotPanel/></aside></main><StatusBar displayName={user.displayName}/></div>
 }
 
 function AuthenticatedApp() {

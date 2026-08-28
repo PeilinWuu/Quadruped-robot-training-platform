@@ -537,9 +537,7 @@ fn spawn_telemetry_writer(
             let mut write_latency_max_us = 0_u64;
             let mut physics_hz = 0.0;
             let mut real_time_factor = 0.0;
-            let mut leg_hz = 0_u32;
-            let mut mpc_hz = 0_u32;
-            let mut qp_failures = 0_u64;
+            let mut animation_hz = 0.0;
             while !stop.load(Ordering::Acquire) {
                 let Some(core) = core.upgrade() else { break };
                 let current_generation = core.inner.lock().ok().map(|inner| inner.generation);
@@ -549,9 +547,7 @@ fn spawn_telemetry_writer(
                 if let Some(telemetry) = core.simulation.latest_telemetry() {
                     physics_hz = telemetry.performance.physics_frequency_hz;
                     real_time_factor = telemetry.performance.real_time_factor;
-                    leg_hz = telemetry.locomotion.leg_controller_frequency_hz;
-                    mpc_hz = telemetry.locomotion.mpc_frequency_hz;
-                    qp_failures = telemetry.locomotion.qp_failure_count;
+                    animation_hz = telemetry.locomotion.gait_frequency_hz;
                     if last_sequence != Some(telemetry.sequence) {
                         let sequence_delta = last_sequence.map_or(1_u64, |previous| {
                             u64::from(telemetry.sequence.wrapping_sub(previous)).max(1)
@@ -603,7 +599,7 @@ fn spawn_telemetry_writer(
                     let interval_write_p95_us = write_latencies_us.get(p95_index).copied().unwrap_or(0);
                     let elapsed = diagnostic_last.elapsed().as_secs_f64();
                     eprintln!(
-                        "D6_ROS_PERF_DIAGNOSTIC component=rust time_s={:.3} source_hz={:.2} forward_hz={:.2} produced_total={} forwarded_total={} dropped_total={} queue_current={} queue_max=1 enqueue_count={} dequeue_count={} drop_count={} write_attempts={} write_completed={} write_inflight=0 write_max_inflight=1 write_latency_interval_mean_us={} write_latency_interval_p95_us={} write_latency_total_mean_us={} write_latency_max_us={} bytes_per_sec={:.0} bytes_total={} latest_produced_sequence={} latest_forwarded_sequence={} forwarding_disabled={} physics_hz={:.3} rtf={:.3} leg_hz={} mpc_hz={} qp_failures={}",
+                        "D6_ROS_PERF_DIAGNOSTIC component=rust time_s={:.3} source_hz={:.2} forward_hz={:.2} produced_total={} forwarded_total={} dropped_total={} queue_current={} queue_max=1 enqueue_count={} dequeue_count={} drop_count={} write_attempts={} write_completed={} write_inflight=0 write_max_inflight=1 write_latency_interval_mean_us={} write_latency_interval_p95_us={} write_latency_total_mean_us={} write_latency_max_us={} bytes_per_sec={:.0} bytes_total={} latest_produced_sequence={} latest_forwarded_sequence={} forwarding_disabled={} physics_hz={:.3} rtf={:.3} animation_hz={:.2}",
                         diagnostic_started.elapsed().as_secs_f64(),
                         interval_produced as f64 / elapsed,
                         interval_forwarded as f64 / elapsed,
@@ -627,9 +623,7 @@ fn spawn_telemetry_writer(
                         disable_forward,
                         physics_hz,
                         real_time_factor,
-                        leg_hz,
-                        mpc_hz,
-                        qp_failures,
+                        animation_hz,
                     );
                     interval_produced = 0;
                     interval_forwarded = 0;

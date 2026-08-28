@@ -7,21 +7,7 @@
 #include <optional>
 #include <system_error>
 
-#include "controllers/low_level_joint_command.hpp"
-#include "controllers/mpc/go2_convex_mpc_controller.hpp"
-#include "controllers/mpc/mujoco_state_provider.hpp"
-
 namespace sidecar {
-
-struct SimulationEngine::ControllerRuntime {
-  controllers::mpc::MujocoStateProvider state_provider;
-  controllers::mpc::Go2ConvexMpcController locomotion_controller;
-  controllers::RobotState state;
-  std::array<controllers::LowLevelJointCommand, controllers::kJointCount> commands{};
-  unsigned int schedule_phase{0};
-  unsigned int consecutive_saturated_ticks{0};
-  std::string fault;
-};
 
 namespace {
 using Json = nlohmann::json;
@@ -33,6 +19,7 @@ constexpr int kMaximumCatchupSteps = 10;
 constexpr double kContactThresholdNewton = 0.01;
 constexpr double kFallDebounceSeconds = 0.2;
 constexpr double kImpactCooldownSeconds = 0.5;
+constexpr double kTwoPi = 6.28318530717958647692;
 constexpr const char* kEnvironmentId = "flat-ground-v1";
 constexpr const char* kGroundGeomName = "flat-ground-v1-floor";
 constexpr std::array<const char*, 4> kFootLabels = {"FL", "FR", "RL", "RR"};
@@ -54,7 +41,7 @@ struct ModelDefinition {
   const std::array<const char*, 12>* joints;
   const std::array<const char*, 4>* foot_geoms;
   const char* imu_site;
-  bool test_pose_hold;
+  bool kinematic_animation;
   double fall_height_threshold;
   double impact_threshold;
 };
@@ -303,11 +290,15 @@ EngineResult SimulationEngine::load_model(const std::string& model_id,
     actuator_ids.push_back(actuator_id);
   }
   int root_body_id = -1;
+  int root_qpos_address = -1;
+  int root_dof_address = -1;
   int free_joints = 0;
   for (int index = 0; index < candidate->njnt; ++index) {
     if (candidate->jnt_type[index] == mjJNT_FREE) {
       ++free_joints;
       root_body_id = candidate->jnt_bodyid[index];
+      root_qpos_address = candidate->jnt_qposadr[index];
+      root_dof_address = candidate->jnt_dofadr[index];
     }
   }
   std::array<int, 4> foot_geom_ids{};
@@ -337,31 +328,18 @@ EngineResult SimulationEngine::load_model(const std::string& model_id,
   const int imu_site_id = definition->imu_site
       ? mj_name2id(candidate.get(), mjOBJ_SITE, definition->imu_site) : -1;
   const int home_keyframe = mj_name2id(candidate.get(), mjOBJ_KEY, "home");
-  if (free_joints != 1 || root_body_id <= 0 || home_keyframe < 0 ||
+  if (free_joints != 1 || root_body_id <= 0 || root_qpos_address < 0 ||
+      root_dof_address < 0 || home_keyframe < 0 ||
       (definition->imu_site && imu_site_id < 0)) return error("MODEL_LOAD_FAILED");
   mj_resetDataKeyframe(candidate.get(), candidate_data.get(), home_keyframe);
   mj_forward(candidate.get(), candidate_data.get());
   std::vector<double> home_positions;
   for (const int address : qpos_addresses) home_positions.push_back(candidate_data->qpos[address]);
-  std::unique_ptr<ControllerRuntime> controller_runtime;
-  if (model_id == "unitree-go2-menagerie") {
-    controller_runtime = std::make_unique<ControllerRuntime>();
-    std::string controller_error;
-    if (!controller_runtime->state_provider.initialize(candidate.get(), joint_ids, qpos_addresses,
-            dof_addresses, actuator_ids, foot_geom_ids, ground_geom_id, root_body_id, controller_error) ||
-        !controller_runtime->state_provider.update(candidate.get(), candidate_data.get(), false, false, false,
-            controller_runtime->state, controller_error) ||
-        !controller_runtime->locomotion_controller.initialize(controller_runtime->state, home_positions,
-            controller_error)) {
-      return error("MODEL_LOAD_FAILED");
-    }
-  }
   {
     std::lock_guard lock(mutex_);
     state_ = SimulationState::loaded;
     model_ = std::move(candidate);
     data_ = std::move(candidate_data);
-    controller_runtime_ = std::move(controller_runtime);
     model_id_ = model_id;
     environment_id_ = environment_id;
     joint_ids_ = std::move(joint_ids);
@@ -375,11 +353,13 @@ EngineResult SimulationEngine::load_model(const std::string& model_id,
     geom_categories_ = std::move(geom_categories);
     geom_profile_names_ = std::move(geom_profile_names);
     root_body_id_ = root_body_id;
+    root_qpos_address_ = root_qpos_address;
+    root_dof_address_ = root_dof_address;
     imu_site_id_ = imu_site_id;
     home_joint_positions_ = std::move(home_positions);
     joint_targets_ = home_joint_positions_;
     home_keyframe_ = home_keyframe;
-    test_pose_hold_ = definition->test_pose_hold;
+    kinematic_animation_ = definition->kinematic_animation;
     fall_height_threshold_ = definition->fall_height_threshold;
     impact_threshold_ = definition->impact_threshold;
     pose_sequence_ = 0;
@@ -548,8 +528,8 @@ EngineResult SimulationEngine::set_motion_command(const MotionCommand& input) {
       if (model_id_ != "unitree-go2-menagerie" || environment_id_ != kEnvironmentId) {
         return error("LOCOMOTION_UNAVAILABLE");
       }
-      if (std::abs(input.lateral_velocity) > 1e-9) return error("UNSUPPORTED_LATERAL_MOTION");
-      if (input.forward_velocity < -0.20 || input.forward_velocity > 0.30 ||
+      if (input.forward_velocity < -0.30 || input.forward_velocity > 0.30 ||
+          std::abs(input.lateral_velocity) > 0.30 ||
           std::abs(input.yaw_rate) > 0.50) return error("LOCOMOTION_LIMIT_EXCEEDED");
     }
     motion_command_ = input;
@@ -661,64 +641,22 @@ Json SimulationEngine::test_locomotion_profile() const {
 
 Json SimulationEngine::test_locomotion_diagnostics() const {
   std::lock_guard lock(mutex_);
-  if (!model_ || !data_ || !controller_runtime_) return Json::object();
+  if (!model_ || !data_ || !kinematic_animation_) return Json::object();
   return Json{{"rootWorld", {data_->qpos[0], data_->qpos[1], data_->qpos[2]}},
     {"controller", locomotion_telemetry_locked()}, {"collision", latest_collision_},
     {"jointLimitClips", joint_limit_clip_count_}, {"actuatorSaturations", saturation_count_}};
 }
 
-Json SimulationEngine::test_static_mpc_diagnostics() const {
+Json SimulationEngine::test_kinematic_diagnostics() const {
   std::lock_guard lock(mutex_);
-  if (!model_ || !data_ || !controller_runtime_) return Json::object();
-  const auto& telemetry = controller_runtime_->locomotion_controller.telemetry();
-  Json forces = Json::array();
-  Json actual_forces = Json::array();
-  Json foot_positions = Json::array();
-  double stance_slip = 0.0;
-  int stance_count = 0;
-  for (const auto& force : telemetry.desired_ground_forces) {
-    forces.push_back(Json::array({force.x(), force.y(), force.z()}));
-  }
-  for (const auto& force : controller_runtime_->state.actual_contact_force_world) {
-    actual_forces.push_back(Json::array({force.x(), force.y(), force.z()}));
-  }
-  for (const auto& position : controller_runtime_->state.foot_position_world) {
-    foot_positions.push_back(Json::array({position.x(), position.y(), position.z()}));
-  }
-  for (std::size_t leg = 0; leg < controllers::kLegCount; ++leg) {
-    if (telemetry.expected_contacts[leg]) {
-      stance_slip += controller_runtime_->state.foot_velocity_world[leg].head<2>().norm();
-      ++stance_count;
-    }
-  }
+  if (!model_ || !data_ || !kinematic_animation_) return Json::object();
   return Json{{"rootPosition", Json::array({data_->qpos[0], data_->qpos[1], data_->qpos[2]})},
     {"rootQuaternion", Json::array({data_->qpos[3], data_->qpos[4], data_->qpos[5], data_->qpos[6]})},
-    {"simulationTime", data_->time}, {"solverStatus", telemetry.solver_status},
-    {"solverIterations", telemetry.solver_iterations}, {"solverMeanMs", telemetry.solver_mean_ms},
-    {"solverMaxMs", telemetry.solver_max_ms}, {"solverCount", telemetry.solver_count},
-    {"qpFailureCount", telemetry.qp_failure_count},
-    {"touchdownEventCount", telemetry.touchdown_event_count},
-    {"onTimeTouchdownCount", telemetry.on_time_touchdown_count},
-    {"lateTouchdownEventCount", telemetry.late_touchdown_event_count},
-    {"earlyTouchdownEventCount", telemetry.early_touchdown_event_count},
-    {"touchdownTimeoutCount", telemetry.touchdown_timeout_count},
-    {"touchdownLatencyMeanMs", telemetry.touchdown_latency_mean_ms},
-    {"touchdownLatencyMaxMs", telemetry.touchdown_latency_max_ms},
-    {"touchdownLatencyP95Ms", telemetry.touchdown_latency_p95_ms},
-    {"footSlipSummary", stance_count ? stance_slip / stance_count : 0.0},
-    {"desiredGroundForces", std::move(forces)},
-    {"actualGroundForces", std::move(actual_forces)}, {"controllerState", controllers::controller_state_name(telemetry.state)},
-    {"footPositionsWorld", std::move(foot_positions)},
-    {"gaitPhase", telemetry.gait_phase}, {"expectedContacts", telemetry.expected_contacts},
-    {"actualContacts", controller_runtime_->state.contacts},
-    {"commandedForwardVelocity", telemetry.commanded_forward_velocity},
-    {"filteredForwardVelocity", telemetry.filtered_forward_velocity},
-    {"measuredForwardVelocity", telemetry.measured_forward_velocity},
-    {"commandedYawRate", telemetry.commanded_yaw_rate}, {"filteredYawRate", telemetry.filtered_yaw_rate},
-    {"measuredYawRate", telemetry.measured_yaw_rate},
-    {"fault", controller_runtime_->fault.empty() ? Json(nullptr) : Json(controller_runtime_->fault)},
-    {"actuatorSaturationCount", saturation_count_}, {"jointLimitClipCount", joint_limit_clip_count_},
-    {"collision", latest_collision_}};
+    {"simulationTime", data_->time}, {"animationPhase", kinematic_gait_phase_},
+    {"expectedContacts", kinematic_contacts_},
+    {"commandedForwardVelocity", motion_command_.forward_velocity},
+    {"commandedLateralVelocity", motion_command_.lateral_velocity},
+    {"commandedYawRate", motion_command_.yaw_rate}, {"collision", latest_collision_}};
 }
 
 Json SimulationEngine::test_performance_window(const double wall_elapsed_seconds,
@@ -788,18 +726,26 @@ Json SimulationEngine::motion_status_locked() const {
       ? 0LL : std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - motion_received_at_).count();
   const bool stand = motion_command_.mode == MotionMode::stand;
   const bool available = model_id_ == "unitree-go2-menagerie" && environment_id_ == kEnvironmentId;
-  const bool applied = available && controller_runtime_ &&
-      controller_runtime_->locomotion_controller.telemetry().state != controllers::ControllerState::fault;
+  const bool applied = available && kinematic_animation_;
   return Json{{"sequence", motion_command_.sequence}, {"mode", stand ? "stand" : "locomotion"},
               {"forwardVelocity", motion_command_.forward_velocity},
               {"lateralVelocity", motion_command_.lateral_velocity}, {"yawRate", motion_command_.yaw_rate},
               {"bodyHeight", motion_command_.body_height}, {"validForMs", motion_command_.valid_for_ms},
               {"ageMs", std::max<std::int64_t>(0, age)}, {"timedOut", motion_timed_out_},
               {"appliedByController", applied || (!available && stand)}, {"bodyHeightApplied", available},
-              {"controllerAvailability", available ? "go2-convex-mpc-v1" : (stand ? "stand-hold" : "not-implemented")}};
+              {"controllerAvailability", available ? "go2-kinematic-animation-v1" : (stand ? "stand-hold" : "not-implemented")}};
 }
 
 Json SimulationEngine::collision_telemetry_locked() {
+  if (kinematic_animation_) {
+    return Json{{"environmentId", kEnvironmentId}, {"totalEnvironmentContacts", 0},
+      {"footContacts", 0}, {"nonFootContacts", 0}, {"torsoContacts", 0},
+      {"headContacts", 0}, {"limbContacts", 0}, {"maxNormalForce", 0.0},
+      {"totalNormalForce", 0.0}, {"strongestContact", nullptr}, {"isFallen", false},
+      {"fallReason", "none"}, {"isOutOfBounds", false},
+      {"rootHeightAboveFloor", data_->qpos[root_qpos_address_ + 2]},
+      {"roll", 0.0}, {"pitch", 0.0}};
+  }
   int total_contacts = 0;
   int foot_contacts = 0;
   int non_foot_contacts = 0;
@@ -964,7 +910,7 @@ Json SimulationEngine::telemetry_locked(const bool advance_sequence, const bool)
   std::array<int, 4> contact_counts{};
   std::array<double, 4> normal_forces{};
   std::array<std::array<double, 3>, 4> foot_forces{};
-  for (int contact_index = 0; contact_index < data_->ncon; ++contact_index) {
+  for (int contact_index = 0; !kinematic_animation_ && contact_index < data_->ncon; ++contact_index) {
     const mjContact& contact = data_->contact[contact_index];
     for (std::size_t foot = 0; foot < foot_geom_ids_.size(); ++foot) {
       const bool foot_is_geom1 = contact.geom1 == foot_geom_ids_[foot];
@@ -1057,16 +1003,14 @@ void SimulationEngine::clear_motion_locked() {
 void SimulationEngine::reset_locomotion_locked() {
   saturation_count_ = joint_limit_clip_count_ = 0;
   joint_targets_ = home_joint_positions_;
-  if (controller_runtime_ && model_ && data_) {
-    controller_runtime_->schedule_phase = 0;
-    controller_runtime_->fault.clear();
-    std::string controller_error;
-    if (!controller_runtime_->state_provider.update(model_.get(), data_.get(), false, false, false,
-            controller_runtime_->state, controller_error) ||
-        !controller_runtime_->locomotion_controller.initialize(controller_runtime_->state,
-            home_joint_positions_, controller_error)) {
-      controller_runtime_->fault = controller_error;
-    }
+  kinematic_gait_phase_ = 0.0;
+  kinematic_contacts_.fill(true);
+  if (model_ && data_ && root_qpos_address_ >= 0) {
+    const double w = data_->qpos[root_qpos_address_ + 3];
+    const double x = data_->qpos[root_qpos_address_ + 4];
+    const double y = data_->qpos[root_qpos_address_ + 5];
+    const double z = data_->qpos[root_qpos_address_ + 6];
+    kinematic_yaw_ = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
   }
 }
 
@@ -1099,141 +1043,88 @@ std::array<double, 3> SimulationEngine::foot_position_locked(const mjData* value
 
 nlohmann::json SimulationEngine::locomotion_telemetry_locked() const {
   const bool available = model_id_ == "unitree-go2-menagerie" && environment_id_ == kEnvironmentId;
-  if (!available || !controller_runtime_) {
-    return Json{{"controllerId", "go2-convex-mpc-v1"}, {"availability", "unavailable"},
-      {"state", "standing"}, {"commandedForwardVelocity", 0.0},
-      {"filteredForwardVelocity", 0.0}, {"measuredForwardVelocity", 0.0},
-      {"commandedYawRate", 0.0}, {"filteredYawRate", 0.0}, {"measuredYawRate", 0.0},
-      {"mpcFrequencyHz", 50}, {"legControllerFrequencyHz", 250}, {"horizonSteps", 10},
-      {"gaitFrequencyHz", 2.2}, {"dutyFactor", 0.65}, {"gaitPhase", 0.0},
-      {"expectedContacts", {true, true, true, true}},
-      {"actualContacts", {false, false, false, false}},
-      {"desiredGroundForces", {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-                                  {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}}},
-      {"actualGroundForces", {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-                                 {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}}},
-      {"solverStatus", "unavailable"}, {"solverIterations", 0},
-      {"solverMeanMs", 0.0}, {"solverMaxMs", 0.0}, {"qpFailureCount", 0},
-      {"touchdownEventCount", 0}, {"onTimeTouchdownCount", 0},
-      {"lateTouchdownEventCount", 0}, {"earlyTouchdownEventCount", 0},
-      {"touchdownTimeoutCount", 0}, {"touchdownLatencyMeanMs", 0.0},
-      {"touchdownLatencyMaxMs", 0.0}, {"touchdownLatencyP95Ms", 0.0},
-      {"footSlipSummary", 0.0},
-      {"jointLimitClipCount", joint_limit_clip_count_},
-      {"actuatorSaturationCount", saturation_count_}, {"faultReason", nullptr}};
-  }
-  const auto& telemetry = controller_runtime_->locomotion_controller.telemetry();
-  Json desired_forces = Json::array(), actual_forces = Json::array();
-  double stance_slip = 0.0;
-  int stance_count = 0;
-  for (std::size_t leg = 0; leg < controllers::kLegCount; ++leg) {
-    const auto& desired = telemetry.desired_ground_forces[leg];
-    const auto& actual = controller_runtime_->state.actual_contact_force_world[leg];
-    desired_forces.push_back({desired.x(), desired.y(), desired.z()});
-    actual_forces.push_back({actual.x(), actual.y(), actual.z()});
-    if (telemetry.expected_contacts[leg]) {
-      stance_slip += controller_runtime_->state.foot_velocity_world[leg].head<2>().norm();
-      ++stance_count;
-    }
-  }
-  return Json{{"controllerId", "go2-convex-mpc-v1"}, {"availability", "available"},
-    {"state", controllers::controller_state_name(telemetry.state)},
-    {"commandedForwardVelocity", telemetry.commanded_forward_velocity},
-    {"filteredForwardVelocity", telemetry.filtered_forward_velocity},
-    {"measuredForwardVelocity", telemetry.measured_forward_velocity},
-    {"commandedYawRate", telemetry.commanded_yaw_rate}, {"filteredYawRate", telemetry.filtered_yaw_rate},
-    {"measuredYawRate", telemetry.measured_yaw_rate}, {"mpcFrequencyHz", 50},
-    {"legControllerFrequencyHz", 250}, {"horizonSteps", 10},
-    {"gaitFrequencyHz", controller_runtime_->locomotion_controller.gait_frequency_hz()},
-    {"dutyFactor", controller_runtime_->locomotion_controller.duty_factor()},
-    {"gaitPhase", telemetry.gait_phase}, {"expectedContacts", telemetry.expected_contacts},
-    {"actualContacts", controller_runtime_->state.contacts},
-    {"desiredGroundForces", std::move(desired_forces)}, {"actualGroundForces", std::move(actual_forces)},
-    {"solverStatus", telemetry.solver_status}, {"solverIterations", telemetry.solver_iterations},
-    {"solverMeanMs", telemetry.solver_mean_ms}, {"solverMaxMs", telemetry.solver_max_ms},
-    {"qpFailureCount", telemetry.qp_failure_count},
-    {"touchdownEventCount", telemetry.touchdown_event_count},
-    {"onTimeTouchdownCount", telemetry.on_time_touchdown_count},
-    {"lateTouchdownEventCount", telemetry.late_touchdown_event_count},
-    {"earlyTouchdownEventCount", telemetry.early_touchdown_event_count},
-    {"touchdownTimeoutCount", telemetry.touchdown_timeout_count},
-    {"touchdownLatencyMeanMs", telemetry.touchdown_latency_mean_ms},
-    {"touchdownLatencyMaxMs", telemetry.touchdown_latency_max_ms},
-    {"touchdownLatencyP95Ms", telemetry.touchdown_latency_p95_ms},
-    {"footSlipSummary", stance_count ? stance_slip / stance_count : 0.0},
-    {"jointLimitClipCount", joint_limit_clip_count_}, {"actuatorSaturationCount", saturation_count_},
-    {"faultReason", telemetry.fault_reason.empty() ? Json(nullptr) : Json(telemetry.fault_reason)}};
+  const bool moving = available && motion_command_.mode == MotionMode::locomotion && !motion_timed_out_ &&
+      (std::abs(motion_command_.forward_velocity) > 1e-4 ||
+       std::abs(motion_command_.lateral_velocity) > 1e-4 ||
+       std::abs(motion_command_.yaw_rate) > 1e-4);
+  const std::array<bool, 4> contacts = available
+      ? kinematic_contacts_ : std::array<bool, 4>{{false, false, false, false}};
+  const double forward = moving ? motion_command_.forward_velocity : 0.0;
+  const double lateral = moving ? motion_command_.lateral_velocity : 0.0;
+  const double yaw = moving ? motion_command_.yaw_rate : 0.0;
+  return Json{{"controllerId", "go2-kinematic-animation-v1"},
+    {"availability", available ? "available" : "unavailable"},
+    {"state", moving ? "locomotion" : "standing"},
+    {"commandedForwardVelocity", forward}, {"commandedLateralVelocity", lateral},
+    {"commandedYawRate", yaw}, {"integratedForwardVelocity", forward},
+    {"integratedLateralVelocity", lateral}, {"integratedYawRate", yaw},
+    {"gaitFrequencyHz", 1.8}, {"dutyFactor", 0.5},
+    {"gaitPhase", available ? kinematic_gait_phase_ : 0.0},
+    {"expectedContacts", contacts}, {"faultReason", nullptr}};
 }
 
-void SimulationEngine::apply_joint_pd_locked() {
-  constexpr double position_gain = 35.0;
-  constexpr double velocity_gain = 1.5;
-  for (int index = 0; index < model_->nu; ++index) {
-    const double target = joint_targets_[static_cast<std::size_t>(index)];
-    const double position = data_->qpos[joint_qpos_addresses_[static_cast<std::size_t>(index)]];
-    const double velocity = data_->qvel[joint_dof_addresses_[static_cast<std::size_t>(index)]];
-    const double effort = position_gain * (target - position) - velocity_gain * velocity;
-    const int actuator = actuator_ids_[static_cast<std::size_t>(index)];
-    const double limited = std::clamp(effort, model_->actuator_ctrlrange[actuator * 2],
-                                      model_->actuator_ctrlrange[actuator * 2 + 1]);
-    if (limited != effort) ++saturation_count_;
-    data_->ctrl[actuator] = limited;
+void SimulationEngine::apply_kinematic_animation_locked() {
+  const double dt = model_->opt.timestep;
+  const bool moving = motion_command_.mode == MotionMode::locomotion && !motion_timed_out_ &&
+      (std::abs(motion_command_.forward_velocity) > 1e-4 ||
+       std::abs(motion_command_.lateral_velocity) > 1e-4 ||
+       std::abs(motion_command_.yaw_rate) > 1e-4);
+  const double forward = moving ? motion_command_.forward_velocity : 0.0;
+  const double lateral = moving ? motion_command_.lateral_velocity : 0.0;
+  const double yaw_rate = moving ? motion_command_.yaw_rate : 0.0;
+  const double world_x = std::cos(kinematic_yaw_) * forward - std::sin(kinematic_yaw_) * lateral;
+  const double world_y = std::sin(kinematic_yaw_) * forward + std::cos(kinematic_yaw_) * lateral;
+  data_->qpos[root_qpos_address_] += world_x * dt;
+  data_->qpos[root_qpos_address_ + 1] += world_y * dt;
+  data_->qpos[root_qpos_address_ + 2] = motion_command_.body_height;
+  kinematic_yaw_ = std::remainder(kinematic_yaw_ + yaw_rate * dt, kTwoPi);
+  data_->qpos[root_qpos_address_ + 3] = std::cos(kinematic_yaw_ * 0.5);
+  data_->qpos[root_qpos_address_ + 4] = 0.0;
+  data_->qpos[root_qpos_address_ + 5] = 0.0;
+  data_->qpos[root_qpos_address_ + 6] = std::sin(kinematic_yaw_ * 0.5);
+  mju_zero(data_->qvel, model_->nv);
+  data_->qvel[root_dof_address_] = world_x;
+  data_->qvel[root_dof_address_ + 1] = world_y;
+  data_->qvel[root_dof_address_ + 5] = yaw_rate;
+
+  const double motion_scale = moving ? std::clamp(std::max({std::abs(forward) / 0.30,
+      std::abs(lateral) / 0.30, std::abs(yaw_rate) / 0.50}), 0.25, 1.0) : 0.0;
+  if (moving) kinematic_gait_phase_ = std::fmod(kinematic_gait_phase_ + 1.8 * dt, 1.0);
+  else kinematic_gait_phase_ = 0.0;
+  for (std::size_t leg = 0; leg < 4; ++leg) {
+    const double offset = (leg == 0 || leg == 3) ? 0.0 : 0.5;
+    const double phase = kTwoPi * std::fmod(kinematic_gait_phase_ + offset, 1.0);
+    const double wave = std::sin(phase);
+    const double lift = std::max(0.0, wave);
+    kinematic_contacts_[leg] = !moving || wave <= 0.0;
+    const std::size_t hip = leg * 3;
+    const std::array<double, 3> offsets{{
+        motion_scale * (0.035 * std::sin(phase + 1.5707963267948966) +
+            (leg % 2 == 0 ? 1.0 : -1.0) * 0.025 * lateral / 0.30),
+        motion_scale * (0.18 * wave - 0.08 * yaw_rate / 0.50 * (leg < 2 ? 1.0 : -1.0)),
+        motion_scale * (-0.28 * lift + 0.08 * std::min(0.0, wave)),
+    }};
+    for (std::size_t joint = 0; joint < 3; ++joint) {
+      const std::size_t index = hip + joint;
+      const int joint_id = joint_ids_[index];
+      const double target = std::clamp(home_joint_positions_[index] + offsets[joint],
+          model_->jnt_range[joint_id * 2], model_->jnt_range[joint_id * 2 + 1]);
+      const int qpos = joint_qpos_addresses_[index];
+      const int dof = joint_dof_addresses_[index];
+      data_->qvel[dof] = (target - data_->qpos[qpos]) / dt;
+      data_->qpos[qpos] = target;
+      joint_targets_[index] = target;
+    }
   }
+  if (model_->nu > 0) mju_zero(data_->ctrl, model_->nu);
 }
 
 void SimulationEngine::step_once_locked() {
   update_command_timeout_locked();
   const auto control_started = Clock::now();
   const bool control_tick = control_phase_ == 0;
-  if (test_pose_hold_) {
-    if (controller_runtime_ && controller_runtime_->schedule_phase % 2U == 0U) {
-      std::string controller_error;
-      const bool state_valid = controller_runtime_->state_provider.update(model_.get(), data_.get(),
-          non_foot_collision_active_, fallen_, out_of_bounds_, controller_runtime_->state, controller_error);
-      const bool requested = motion_command_.mode == MotionMode::locomotion && !motion_timed_out_ &&
-          (std::abs(motion_command_.forward_velocity) > 1e-4 || std::abs(motion_command_.yaw_rate) > 1e-4);
-      const controllers::MotionTarget target{motion_command_.forward_velocity, motion_command_.yaw_rate,
-                                             motion_command_.body_height, requested};
-      const bool command_valid = state_valid && controller_runtime_->locomotion_controller.update(
-          controller_runtime_->state, target, controller_runtime_->schedule_phase == 0U,
-          controller_runtime_->commands, controller_error);
-      if (command_valid) {
-        controller_runtime_->fault.clear();
-        const std::uint64_t saturation_before = saturation_count_;
-        for (std::size_t index = 0; index < controllers::kJointCount; ++index) {
-          const auto& command = controller_runtime_->commands[index];
-          const int joint_id = joint_ids_[index];
-          const double joint_target = std::clamp(command.q, model_->jnt_range[joint_id * 2],
-                                                  model_->jnt_range[joint_id * 2 + 1]);
-          if (joint_target != command.q) ++joint_limit_clip_count_;
-          const double position = data_->qpos[joint_qpos_addresses_[index]];
-          const double velocity = data_->qvel[joint_dof_addresses_[index]];
-          const double effort = command.tau_feedforward + command.kp * (joint_target - position) +
-              command.kd * (command.dq - velocity);
-          const int actuator = actuator_ids_[index];
-          const double limited = std::clamp(effort, model_->actuator_ctrlrange[actuator * 2],
-                                             model_->actuator_ctrlrange[actuator * 2 + 1]);
-          if (limited != effort) ++saturation_count_;
-          data_->ctrl[actuator] = limited;
-        }
-        if (saturation_count_ > saturation_before) {
-          ++controller_runtime_->consecutive_saturated_ticks;
-          if (controller_runtime_->consecutive_saturated_ticks >= 250U) {
-            controller_runtime_->locomotion_controller.force_fault("continuous-actuator-saturation");
-            controller_runtime_->fault = "continuous-actuator-saturation";
-          }
-        } else {
-          controller_runtime_->consecutive_saturated_ticks = 0;
-        }
-      } else {
-        controller_runtime_->fault = controller_error;
-        joint_targets_ = home_joint_positions_;
-        apply_joint_pd_locked();
-      }
-    }
-    if (controller_runtime_) {
-      controller_runtime_->schedule_phase = (controller_runtime_->schedule_phase + 1U) % 10U;
-    }
+  if (kinematic_animation_) {
+    apply_kinematic_animation_locked();
   } else if (control_tick && model_->nkey > 0 && model_->key_ctrl != nullptr) {
     for (int index = 0; index < model_->nu; ++index) data_->ctrl[index] = model_->key_ctrl[index];
   }
@@ -1245,8 +1136,16 @@ void SimulationEngine::step_once_locked() {
   }
   control_phase_ = (control_phase_ + 1U) % 5U;
   const auto physics_started = Clock::now();
-  mj_step(model_.get(), data_.get());
-  update_collision_state_locked();
+  if (kinematic_animation_) {
+    data_->time += model_->opt.timestep;
+    mj_forward(model_.get(), data_.get());
+    fallen_ = false;
+    out_of_bounds_ = false;
+    non_foot_collision_active_ = false;
+  } else {
+    mj_step(model_.get(), data_.get());
+    update_collision_state_locked();
+  }
   const double elapsed = std::chrono::duration<double, std::milli>(Clock::now() - physics_started).count();
   ++physics_steps_;
   physics_step_total_ms_ += elapsed;

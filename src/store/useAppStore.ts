@@ -11,6 +11,8 @@ import type {
 import { DEFAULT_SIMULATION_MODEL_ID } from '../services/simulation/types'
 import type { Go2VisualMode } from '../features/gaussian-viewer/robot/go2VisualManifest'
 import { MOCK_RESEARCH_CHARTS } from '../config/features'
+import type { RobotSpatialState } from '../services/spatial/types'
+import { spatialStateFromSimulationPose } from '../services/spatial/simulationSpatialAdapter'
 
 export interface SimulationPoseSummary {
   sequence: number
@@ -30,6 +32,7 @@ export interface SimulationUiState {
   speed: number
   lastError: string | null
   latestPose: SimulationPoseSummary | null
+  latestSpatialState: RobotSpatialState | null
   latestTelemetry: RobotTelemetry | null
   latestMotionCommand: MotionCommandStatus | null
   latestCollisionEvent: CollisionEvent | null
@@ -66,7 +69,7 @@ const INITIAL_SIMULATION: SimulationUiState = {
   selectedModelId: DEFAULT_SIMULATION_MODEL_ID,
   processState: services.simulation.desktop ? 'idle' : 'unavailable',
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
-  latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false,
+  latestPose: null, latestSpatialState: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false,
   visualMode: 'official-mesh', visualPhase: 'idle', visualError: null,
   followRobot: true,
 }
@@ -208,9 +211,9 @@ export const useAppStore = create<AppState>((set, get) => {
       clearSimulationBridge()
       try {
         const status = await services.simulation.shutdown()
-        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false } }))
+        set((state) => ({ simulation: { ...state.simulation, ...statusPatch(status), latestPose: null, latestSpatialState: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false } }))
       } catch {
-        set((state) => ({ simulation: { ...state.simulation, processState: 'failed', simulationState: 'unloaded', latestPose: null, latestTelemetry: null, latestMotionCommand: null, busy: false, lastError: '仿真服务清理失败，应用退出时将执行进程级清理' } }))
+        set((state) => ({ simulation: { ...state.simulation, processState: 'failed', simulationState: 'unloaded', latestPose: null, latestSpatialState: null, latestTelemetry: null, latestMotionCommand: null, busy: false, lastError: '仿真服务清理失败，应用退出时将执行进程级清理' } }))
       }
     },
   }
@@ -248,7 +251,7 @@ function handleSimulationEvent(event: SimulationEvent): void {
     return
   }
   if (event.type === 'model_loaded') {
-    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null } }))
+    useAppStore.setState((state) => ({ simulation: { ...state.simulation, selectedModelId: event.payload.modelId as SimulationModelId, model: event.payload, latestPose: null, latestSpatialState: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null } }))
   } else if (event.type === 'state_changed') {
     useAppStore.setState((state) => ({ simulation: {
       ...state.simulation,
@@ -275,6 +278,7 @@ function flushPoseSummary(): void {
   lastPoseSummaryAt = performance.now()
   useAppStore.setState((state) => ({ simulation: {
     ...state.simulation,
+    latestSpatialState: spatialStateFromSimulationPose(pose),
     latestPose: {
       sequence: pose.sequence,
       simulationTime: pose.simulationTime,

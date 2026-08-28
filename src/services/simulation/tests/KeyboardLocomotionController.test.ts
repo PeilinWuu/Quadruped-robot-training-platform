@@ -62,7 +62,7 @@ describe('KeyboardLocomotionController', () => {
     invocations[0].resolve(undefined)
     await flush()
     expect(invocations).toHaveLength(2)
-    expect(commands.at(-1)?.forwardVelocity).toBe(.12)
+    expect(commands.at(-1)?.forwardVelocity).toBe(.30)
     expect(maxPending).toBe(1)
     controller.dispose()
     invocations.at(-1)?.resolve(undefined)
@@ -88,7 +88,7 @@ describe('KeyboardLocomotionController', () => {
     calls[1].done.resolve(undefined)
   })
 
-  it('uses latest-wins for W to S and W to A to D transitions', async () => {
+  it('uses latest-wins for forward and lateral transitions', async () => {
     const calls: Array<{ command: MotionCommand; done: ReturnType<typeof deferred> }> = []
     const controller = make(vi.fn((command: MotionCommand) => {
       const done = deferred()
@@ -101,9 +101,21 @@ describe('KeyboardLocomotionController', () => {
     calls[0].done.resolve(undefined)
     await flush()
     expect(calls).toHaveLength(2)
-    expect(calls[1].command).toMatchObject({ forwardVelocity: .12, yawRate: -.24 })
+    expect(calls[1].command).toMatchObject({ forwardVelocity: .30, lateralVelocity: -.30, yawRate: 0 })
     controller.dispose()
     calls[1].done.resolve(undefined)
+  })
+
+  it('maps A/D to lateral motion and Q/E to yaw with the same unified limits', async () => {
+    const controller = make()
+    controller.enable()
+    key('keydown', 'KeyA'); key('keydown', 'KeyQ')
+    await flush()
+    expect(commands.at(-1)).toMatchObject({ forwardVelocity: 0, lateralVelocity: .30, yawRate: .50 })
+    key('keyup', 'KeyA'); key('keyup', 'KeyQ'); key('keydown', 'KeyD'); key('keydown', 'KeyE')
+    await flush()
+    expect(commands.at(-1)).toMatchObject({ forwardVelocity: 0, lateralVelocity: -.30, yawRate: -.50 })
+    controller.dispose()
   })
 
   it('gives Space, Escape, blur and hidden an immediate latest clear priority', async () => {
@@ -140,7 +152,7 @@ describe('KeyboardLocomotionController', () => {
     expect(commands).toHaveLength(count)
     const second = make(); second.enable(); key('keydown', 'KeyW')
     await flush()
-    expect(commands.at(-1)?.forwardVelocity).toBe(.12)
+    expect(commands.at(-1)?.forwardVelocity).toBe(.30)
     second.dispose()
   })
 
@@ -167,7 +179,7 @@ describe('KeyboardLocomotionController', () => {
     key('keyup', 'KeyW')
     window.dispatchEvent(new KeyboardEvent('keydown', { code: '', key: 's', bubbles: true }))
     await flush()
-    expect(commands.at(-1)?.forwardVelocity).toBe(-.08)
+    expect(commands.at(-1)?.forwardVelocity).toBe(-.30)
     controller.dispose(); input.remove()
   })
 

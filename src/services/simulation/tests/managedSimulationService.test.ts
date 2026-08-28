@@ -150,7 +150,7 @@ describe('ManagedSimulationService', () => {
     const latestResult = service.setMotionCommand({ ...base, sequence: 3, yawRate: -.24 })
     const clearResult = service.clearMotionCommand()
     expect(fake.adapter.clearMotionCommand).not.toHaveBeenCalled()
-    first.resolve({ ...base, ageMs: 0, timedOut: false, appliedByController: true, bodyHeightApplied: true, controllerAvailability: 'go2-convex-mpc-v1' })
+    first.resolve({ ...base, ageMs: 0, timedOut: false, appliedByController: true, bodyHeightApplied: true, controllerAvailability: 'go2-kinematic-animation-v1' })
     await firstResult
     await vi.waitFor(() => expect(fake.adapter.clearMotionCommand).toHaveBeenCalledOnce())
     expect(fake.adapter.setMotionCommand).toHaveBeenCalledTimes(1)

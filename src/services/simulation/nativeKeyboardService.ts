@@ -16,10 +16,13 @@ export interface NativeKeyboardState {
   backward: boolean
   left: boolean
   right: boolean
+  yawLeft: boolean
+  yawRight: boolean
   resetting: boolean
   speed: DemoSpeed
   generation: number
   forwardVelocity: number
+  lateralVelocity: number
   yawRate: number
 }
 
@@ -59,6 +62,7 @@ export function keyboardUiState(state: NativeKeyboardState): KeyboardLocomotionS
     stopReason,
     speed: state.speed,
     forwardVelocity: state.forwardVelocity,
+    lateralVelocity: state.lateralVelocity,
     yawRate: state.yawRate,
   }
 }

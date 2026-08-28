@@ -99,7 +99,7 @@ fn armed_w_produces_forward_state() {
     let input = controller(&sink);
     input.arm();
     input.handle_key(NativeKey::Forward, true);
-    assert_eq!(input.state().forward_velocity, 0.12);
+    assert_eq!(input.state().forward_velocity, 0.30);
     input.shutdown();
 }
 
@@ -115,29 +115,75 @@ fn w_keyup_immediately_sets_desired_zero() {
 }
 
 #[test]
-fn w_a_combination_is_correct() {
+fn w_a_combination_uses_forward_and_lateral_axes() {
     let sink = FakeSink::ready();
     let input = controller(&sink);
     input.arm();
     input.handle_key(NativeKey::Forward, true);
     input.handle_key(NativeKey::Left, true);
     assert_eq!(
-        (input.state().forward_velocity, input.state().yaw_rate),
-        (0.12, 0.24)
+        (
+            input.state().forward_velocity,
+            input.state().lateral_velocity,
+            input.state().yaw_rate
+        ),
+        (0.30, 0.30, 0.0)
     );
     input.shutdown();
 }
 
 #[test]
-fn w_d_combination_is_correct() {
+fn w_d_combination_uses_forward_and_lateral_axes() {
     let sink = FakeSink::ready();
     let input = controller(&sink);
     input.arm();
     input.handle_key(NativeKey::Forward, true);
     input.handle_key(NativeKey::Right, true);
     assert_eq!(
-        (input.state().forward_velocity, input.state().yaw_rate),
-        (0.12, -0.24)
+        (
+            input.state().forward_velocity,
+            input.state().lateral_velocity,
+            input.state().yaw_rate
+        ),
+        (0.30, -0.30, 0.0)
+    );
+    input.shutdown();
+}
+
+#[test]
+fn q_e_control_yaw_independently_from_lateral_motion() {
+    let sink = FakeSink::ready();
+    let input = controller(&sink);
+    input.set_speed(NativeDemoSpeed::Low);
+    input.arm();
+    input.handle_key(NativeKey::Left, true);
+    input.handle_key(NativeKey::YawLeft, true);
+    assert_eq!(
+        (input.state().lateral_velocity, input.state().yaw_rate),
+        (0.15, 0.25)
+    );
+    input.handle_key(NativeKey::YawLeft, false);
+    input.handle_key(NativeKey::YawRight, true);
+    assert_eq!(input.state().yaw_rate, -0.25);
+    input.shutdown();
+}
+
+#[test]
+fn medium_speed_matches_go2_keyboard_limits_on_all_axes() {
+    let sink = FakeSink::ready();
+    let input = controller(&sink);
+    input.set_speed(NativeDemoSpeed::Medium);
+    input.arm();
+    input.handle_key(NativeKey::Forward, true);
+    input.handle_key(NativeKey::Left, true);
+    input.handle_key(NativeKey::YawLeft, true);
+    assert_eq!(
+        (
+            input.state().forward_velocity,
+            input.state().lateral_velocity,
+            input.state().yaw_rate
+        ),
+        (0.30, 0.30, 0.50)
     );
     input.shutdown();
 }
@@ -150,7 +196,7 @@ fn w_to_s_keeps_only_latest_state() {
     input.handle_key(NativeKey::Forward, true);
     input.handle_key(NativeKey::Forward, false);
     input.handle_key(NativeKey::Backward, true);
-    assert_eq!(input.state().forward_velocity, -0.08);
+    assert_eq!(input.state().forward_velocity, -0.30);
     input.shutdown();
 }
 
@@ -344,9 +390,9 @@ fn rapid_changes_are_latest_wins() {
     input.handle_key(NativeKey::Forward, false);
     input.handle_key(NativeKey::Backward, true);
     wait_until(Duration::from_millis(400), || {
-        latest_forward(&sink) == Some(-0.08)
+        latest_forward(&sink) == Some(-0.30)
     });
-    assert_eq!(latest_motion(&sink).forward_velocity, -0.08);
+    assert_eq!(latest_motion(&sink).forward_velocity, -0.30);
     input.shutdown();
 }
 

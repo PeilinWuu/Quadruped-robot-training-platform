@@ -12,20 +12,11 @@ const telemetry = (sequence: number): RobotTelemetry => ({
   feet: (['FL', 'FR', 'RL', 'RR'] as const).map((name) => ({ name, inContact: true, contactCount: 1, normalForce: 30, forceWorld: [0, 30, 0], positionWorld: [0, 0, 0] })),
   collision: { environmentId: 'flat-ground-v1', totalEnvironmentContacts: 4, footContacts: 4, nonFootContacts: 0, torsoContacts: 0, headContacts: 0, limbContacts: 0, maxNormalForce: 30, totalNormalForce: 120, strongestContact: { category: 'feet', bodyName: 'FL_calf', geomName: 'FL', normalForce: 30, positionWorld: [0, 0, 0] }, isFallen: false, fallReason: 'none', isOutOfBounds: false, rootHeightAboveFloor: .27, roll: 0, pitch: 0 },
   command: { sequence: 0, mode: 'stand', forwardVelocity: 0, lateralVelocity: 0, yawRate: 0, bodyHeight: .3, validForMs: 500, ageMs: 0, timedOut: false, appliedByController: true, bodyHeightApplied: false, controllerAvailability: 'stand-hold' },
-  locomotion: { controllerId: 'go2-convex-mpc-v1', availability: 'available', state: 'standing',
-    commandedForwardVelocity: 0, filteredForwardVelocity: 0, measuredForwardVelocity: 0,
-    commandedYawRate: 0, filteredYawRate: 0, measuredYawRate: 0,
-    mpcFrequencyHz: 50, legControllerFrequencyHz: 250, horizonSteps: 10,
+  locomotion: { controllerId: 'go2-kinematic-animation-v1', availability: 'available', state: 'standing',
+    commandedForwardVelocity: 0, commandedLateralVelocity: 0, commandedYawRate: 0,
+    integratedForwardVelocity: 0, integratedLateralVelocity: 0, integratedYawRate: 0,
     gaitFrequencyHz: 2.2, dutyFactor: .65, gaitPhase: 0,
-    expectedContacts: [true, true, true, true], actualContacts: [true, true, true, true],
-    desiredGroundForces: [[0, 0, 37], [0, 0, 37], [0, 0, 37], [0, 0, 37]],
-    actualGroundForces: [[0, 0, 37], [0, 0, 37], [0, 0, 37], [0, 0, 37]],
-    solverStatus: 'solved', solverIterations: 25, solverMeanMs: 1, solverMaxMs: 2,
-    qpFailureCount: 0, touchdownEventCount: 0, onTimeTouchdownCount: 0,
-    lateTouchdownEventCount: 0, earlyTouchdownEventCount: 0, touchdownTimeoutCount: 0,
-    touchdownLatencyMeanMs: 0, touchdownLatencyMaxMs: 0, touchdownLatencyP95Ms: 0,
-    footSlipSummary: 0,
-    jointLimitClipCount: 0, actuatorSaturationCount: 0, faultReason: null },
+    expectedContacts: [true, true, true, true], faultReason: null },
   performance: { physicsFrequencyHz: 500, controlFrequencyHz: 100, posePublishFrequencyHz: 60, telemetryPublishFrequencyHz: 50, realTimeFactor: 1, physicsStepMeanMs: .1, physicsStepMaxMs: .2, controlStepMeanMs: .01, controlStepMaxMs: .02, droppedPoseEvents: 0, droppedTelemetryEvents: 0, catchUpStepCount: 0 },
 })
 
@@ -55,10 +46,10 @@ describe('RobotTelemetryBuffer', () => {
     listener.mockClear()
     const fault = telemetry(2)
     fault.locomotion.state = 'fault'
-    fault.locomotion.faultReason = 'mpc-infeasible'
+    fault.locomotion.faultReason = 'animation-state-invalid'
     buffer.update(fault)
     expect(listener).toHaveBeenCalledOnce()
-    expect(listener.mock.calls[0][0].locomotion.faultReason).toBe('mpc-infeasible')
+    expect(listener.mock.calls[0][0].locomotion.faultReason).toBe('animation-state-invalid')
   })
 
   it('isolates listeners and clears state on dispose', () => {

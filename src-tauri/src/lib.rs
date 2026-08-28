@@ -16,8 +16,10 @@ pub fn run() {
             let auth_state = auth::AuthState::initialize(app_data_dir.clone())?;
             let scene_state = scenes::SceneState::initialize(app_data_dir)?;
             let simulation_manager = simulation::SimulationManager::new();
+            let real_robot = real_robot::RealRobotManager::new(app.handle().clone());
             let native_keyboard = input::NativeKeyboardController::new(
                 simulation_manager.clone(),
+                real_robot.clone(),
                 app.handle().clone(),
             );
             let ros_bridge = ros_bridge::RosBridgeManager::new(
@@ -25,7 +27,6 @@ pub fn run() {
                 native_keyboard.clone(),
                 app.handle().clone(),
             );
-            let real_robot = real_robot::RealRobotManager::new(app.handle().clone());
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
                 input::install_linux_window_hooks(&window, native_keyboard.clone())?;

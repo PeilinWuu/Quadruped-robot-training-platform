@@ -1,3 +1,4 @@
+use crate::input::NativeKeyboardController;
 use crate::simulation::process::{self, ProcessGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -82,9 +83,9 @@ impl RealMoveCommand {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RealKeyboardMotionCommand {
-    forward_velocity: f64,
-    lateral_velocity: f64,
-    yaw_rate: f64,
+    pub(crate) forward_velocity: f64,
+    pub(crate) lateral_velocity: f64,
+    pub(crate) yaw_rate: f64,
 }
 
 impl RealKeyboardMotionCommand {
@@ -128,6 +129,27 @@ pub struct RealRobotManager {
 }
 
 impl RealRobotManager {
+    pub(crate) fn keyboard_sync_configured(&self) -> bool {
+        let Ok(inner) = self.core.inner.lock() else {
+            return false;
+        };
+        inner.runtime.is_some()
+            && inner.live
+            && inner.control_enabled
+            && !matches!(
+                inner.state,
+                RealRobotState::Unavailable | RealRobotState::Fault
+            )
+    }
+
+    pub(crate) fn keyboard_sync_ready(&self) -> bool {
+        self.keyboard_sync_configured()
+            && self.core.inner.lock().is_ok_and(|inner| {
+                inner
+                    .last_telemetry_at
+                    .is_some_and(|time| time.elapsed() <= Duration::from_secs(2))
+            })
+    }
     pub fn new(app: AppHandle) -> Self {
         Self {
             core: Arc::new(Core {
@@ -688,7 +710,11 @@ pub fn real_robot_keyboard_motion(
     manager.keyboard_motion(command)
 }
 #[tauri::command]
-pub fn real_robot_stop(manager: State<'_, RealRobotManager>) -> Result<RealRobotStatus, String> {
+pub fn real_robot_stop(
+    manager: State<'_, RealRobotManager>,
+    keyboard: State<'_, NativeKeyboardController>,
+) -> Result<RealRobotStatus, String> {
+    keyboard.disarm();
     manager.stop()
 }
 #[tauri::command]

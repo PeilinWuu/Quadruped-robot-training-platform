@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 
+use crate::real_robot::{RealKeyboardMotionCommand, RealRobotManager};
 use crate::simulation::{
     protocol::{MotionCommand, MotionCommandMode},
     SimulationManager,
@@ -15,6 +16,7 @@ use tauri::{AppHandle, Emitter, State};
 
 const HEARTBEAT_PERIOD: Duration = Duration::from_millis(50);
 const VALID_FOR_MS: u32 = 250;
+const REAL_KEEPALIVE_PERIOD: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -34,10 +36,13 @@ pub struct NativeKeyboardState {
     pub backward: bool,
     pub left: bool,
     pub right: bool,
+    pub yaw_left: bool,
+    pub yaw_right: bool,
     pub resetting: bool,
     pub speed: NativeDemoSpeed,
     pub generation: u64,
     pub forward_velocity: f64,
+    pub lateral_velocity: f64,
     pub yaw_rate: f64,
 }
 
@@ -74,6 +79,8 @@ pub(crate) enum NativeKey {
     Backward,
     Left,
     Right,
+    YawLeft,
+    YawRight,
     Space,
     Reset,
     Escape,
@@ -88,6 +95,8 @@ struct MotionState {
     backward: bool,
     left: bool,
     right: bool,
+    yaw_left: bool,
+    yaw_right: bool,
     resetting: bool,
     reset_requested: bool,
     clear_requested: bool,
@@ -108,10 +117,12 @@ impl Default for MotionState {
             backward: false,
             left: false,
             right: false,
+            yaw_left: false,
+            yaw_right: false,
             resetting: false,
             reset_requested: false,
             clear_requested: false,
-            speed: NativeDemoSpeed::Low,
+            speed: NativeDemoSpeed::Medium,
             generation: 0,
             revision: 0,
             shutdown: false,
@@ -126,32 +137,41 @@ impl MotionState {
         self.backward = false;
         self.left = false;
         self.right = false;
+        self.yaw_left = false;
+        self.yaw_right = false;
     }
 
-    fn target(&self) -> (f64, f64) {
-        let (forward, reverse, yaw) = match self.speed {
-            NativeDemoSpeed::Low => (0.12, -0.08, 0.24),
-            NativeDemoSpeed::Medium => (0.15, -0.10, 0.30),
+    fn target(&self) -> (f64, f64, f64) {
+        let (linear, yaw) = match self.speed {
+            NativeDemoSpeed::Low => (0.15, 0.25),
+            NativeDemoSpeed::Medium => (0.30, 0.50),
         };
         let forward_velocity = if self.forward == self.backward {
             0.0
         } else if self.forward {
-            forward
+            linear
         } else {
-            reverse
+            -linear
         };
-        let yaw_rate = if self.left == self.right {
+        let lateral_velocity = if self.left == self.right {
             0.0
         } else if self.left {
+            linear
+        } else {
+            -linear
+        };
+        let yaw_rate = if self.yaw_left == self.yaw_right {
+            0.0
+        } else if self.yaw_left {
             yaw
         } else {
             -yaw
         };
-        (forward_velocity, yaw_rate)
+        (forward_velocity, lateral_velocity, yaw_rate)
     }
 
     fn snapshot(&self) -> NativeKeyboardState {
-        let (forward_velocity, yaw_rate) = self.target();
+        let (forward_velocity, lateral_velocity, yaw_rate) = self.target();
         NativeKeyboardState {
             native: cfg!(target_os = "linux"),
             armed: self.armed,
@@ -161,10 +181,13 @@ impl MotionState {
             backward: self.backward,
             left: self.left,
             right: self.right,
+            yaw_left: self.yaw_left,
+            yaw_right: self.yaw_right,
             resetting: self.resetting,
             speed: self.speed,
             generation: self.generation,
             forward_velocity,
+            lateral_velocity,
             yaw_rate,
         }
     }
@@ -178,7 +201,16 @@ trait MotionSink: Send + Sync + 'static {
 
 struct ManagerMotionSink {
     manager: SimulationManager,
+    real_robot: RealRobotManager,
+    real_state: Mutex<RealFanoutState>,
     app: AppHandle,
+}
+
+#[derive(Default)]
+struct RealFanoutState {
+    active: bool,
+    last_command: Option<(f64, f64, f64)>,
+    last_sent: Option<Instant>,
 }
 
 impl MotionSink for ManagerMotionSink {
@@ -187,9 +219,9 @@ impl MotionSink for ManagerMotionSink {
     }
 
     fn send(&self, command: Option<MotionCommand>) -> Option<u64> {
-        if let Some(command) = command {
+        let result = if let Some(command) = command.as_ref() {
             self.manager
-                .set_motion_command(command)
+                .set_motion_command(command.clone())
                 .ok()
                 .map(|status| status.age_ms)
         } else {
@@ -197,7 +229,9 @@ impl MotionSink for ManagerMotionSink {
                 .clear_motion_command()
                 .ok()
                 .map(|status| status.age_ms)
-        }
+        };
+        self.fan_out_to_real(command.as_ref());
+        result
     }
 
     fn reset(&self) {
@@ -205,6 +239,47 @@ impl MotionSink for ManagerMotionSink {
         // keyboard and UI resets share the same frontend recovery transaction,
         // including sidecar restart after a crash.
         let _ = self.app.emit("native-keyboard-reset-requested", ());
+    }
+}
+
+impl ManagerMotionSink {
+    fn fan_out_to_real(&self, command: Option<&MotionCommand>) {
+        let mut state = self
+            .real_state
+            .lock()
+            .unwrap_or_else(|value| value.into_inner());
+        let values = command.map(|value| {
+            (
+                value.forward_velocity,
+                value.lateral_velocity,
+                value.yaw_rate,
+            )
+        });
+        let moving = values.is_some_and(|(vx, vy, yaw)| vx != 0.0 || vy != 0.0 || yaw != 0.0);
+        if moving && self.real_robot.keyboard_sync_ready() {
+            let values = values.expect("moving command has values");
+            let due = state.last_command != Some(values)
+                || state
+                    .last_sent
+                    .is_none_or(|time| time.elapsed() >= REAL_KEEPALIVE_PERIOD);
+            if due
+                && self
+                    .real_robot
+                    .keyboard_motion(RealKeyboardMotionCommand {
+                        forward_velocity: values.0,
+                        lateral_velocity: values.1,
+                        yaw_rate: values.2,
+                    })
+                    .is_ok()
+            {
+                state.active = true;
+                state.last_command = Some(values);
+                state.last_sent = Some(Instant::now());
+            }
+        } else if state.active && (!moving || !self.real_robot.keyboard_sync_configured()) {
+            let _ = self.real_robot.stop();
+            *state = RealFanoutState::default();
+        }
     }
 }
 
@@ -243,12 +318,20 @@ pub struct NativeKeyboardController {
 }
 
 impl NativeKeyboardController {
-    pub fn new(manager: SimulationManager, app: AppHandle) -> Self {
+    pub fn new(manager: SimulationManager, real_robot: RealRobotManager, app: AppHandle) -> Self {
         let state_app = app.clone();
         let observer: StateObserver = Arc::new(move |state| {
             let _ = state_app.emit("native-keyboard-state-changed", state);
         });
-        Self::with_sink(Arc::new(ManagerMotionSink { manager, app }), Some(observer))
+        Self::with_sink(
+            Arc::new(ManagerMotionSink {
+                manager,
+                real_robot,
+                real_state: Mutex::new(RealFanoutState::default()),
+                app,
+            }),
+            Some(observer),
+        )
     }
 
     fn with_sink(sink: Arc<dyn MotionSink>, observer: Option<StateObserver>) -> Self {
@@ -410,6 +493,8 @@ impl NativeKeyboardController {
                 NativeKey::Backward => &mut state.backward,
                 NativeKey::Left => &mut state.left,
                 NativeKey::Right => &mut state.right,
+                NativeKey::YawLeft => &mut state.yaw_left,
+                NativeKey::YawRight => &mut state.yaw_right,
                 _ => return,
             };
             consumed = true;
@@ -461,7 +546,12 @@ fn heartbeat_worker(
                 (state.snapshot(), state.revision, false, false, true)
             } else {
                 if state.armed && !sink.available() {
-                    let had_keys = state.forward || state.backward || state.left || state.right;
+                    let had_keys = state.forward
+                        || state.backward
+                        || state.left
+                        || state.right
+                        || state.yaw_left
+                        || state.yaw_right;
                     state.clear_keys();
                     if had_keys {
                         state.revision = state.revision.wrapping_add(1);
@@ -530,7 +620,7 @@ fn heartbeat_worker(
                         sequence,
                         mode: MotionCommandMode::Locomotion,
                         forward_velocity: snapshot.forward_velocity,
-                        lateral_velocity: 0.0,
+                        lateral_velocity: snapshot.lateral_velocity,
                         yaw_rate: snapshot.yaw_rate,
                         body_height: 0.3,
                         valid_for_ms: VALID_FOR_MS,

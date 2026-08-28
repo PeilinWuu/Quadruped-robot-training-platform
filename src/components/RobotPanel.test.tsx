@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '../store/useAppStore'
 import { RobotPanelContent } from './RobotPanel'
 import { FLAT_GROUND_ENVIRONMENT } from '../services/simulation/types'
+import { spatialStateFromSimulationPose } from '../services/spatial/simulationSpatialAdapter'
 
 describe('RobotPanel real simulation fields', () => {
   beforeEach(() => {
@@ -16,12 +17,19 @@ describe('RobotPanel real simulation fields', () => {
         rootPosition: [1, 2, 3], rootOrientation: [0, 0, 0, 1],
         joints: Array.from({ length: 12 }, (_, index) => ({ name: `real-joint-${index}`, position: index / 10 })),
       },
+      latestSpatialState: spatialStateFromSimulationPose({
+        sequence: 42, simulationTime: 1.25, wallTime: 1000,
+        rootPosition: [1, 2, 3], rootOrientation: [0, 0, 0, 1], joints: [],
+      }, 1001),
     } }))
   })
 
   it('renders the real root pose and all 12 joints', () => {
     const html = renderToStaticMarkup(<RobotPanelContent simulation={useAppStore.getState().simulation}/>)
     expect(html).toContain('X 1.000 · Y 2.000 · Z 3.000')
+    expect(html).toContain('统一坐标 · ROS Z-up')
+    expect(html).toContain('X 1.000 · Y -3.000 · Z 2.000')
+    expect(html).toContain('world → odom → base_link')
     expect(html).toContain('Pose sequence')
     expect(html).toContain('42')
     for (let index = 0; index < 12; index += 1) expect(html).toContain(`real-joint-${index}`)

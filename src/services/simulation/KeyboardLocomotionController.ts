@@ -4,7 +4,7 @@ import type { MotionIntent, MotionIntentAdapter } from '../control/motionIntent'
 export type DemoSpeed = 'low' | 'medium'
 export interface KeyboardLocomotionState {
   enabled: boolean; resetting: boolean; stopReason: string | null; speed: DemoSpeed
-  forwardVelocity: number; yawRate: number
+  forwardVelocity: number; lateralVelocity: number; yawRate: number
 }
 export interface KeyboardLocomotionTransport {
   setMotionCommand(command: MotionCommand): Promise<unknown>
@@ -44,9 +44,9 @@ class SimulationMotionIntentAdapter implements MotionIntentAdapter {
   }
 }
 
-const LOW = { forward: .12, reverse: -.08, yaw: .24 }
-const MEDIUM = { forward: .15, reverse: -.10, yaw: .30 }
-const CONTROL_KEYS = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+const LOW = { linear: .15, yaw: .25 }
+const MEDIUM = { linear: .30, yaw: .50 }
+const CONTROL_KEYS = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 function normalizedCode(event: KeyboardEvent): string {
   if (CONTROL_KEYS.has(event.code) || ['Escape', 'Space', 'KeyR'].includes(event.code)) return event.code
@@ -58,6 +58,8 @@ function normalizedCode(event: KeyboardEvent): string {
   if (key === 's') return 'KeyS'
   if (key === 'a') return 'KeyA'
   if (key === 'd') return 'KeyD'
+  if (key === 'q') return 'KeyQ'
+  if (key === 'e') return 'KeyE'
   if (event.key.startsWith('Arrow')) return event.key
   return event.code
 }
@@ -79,7 +81,7 @@ export class KeyboardLocomotionController {
   private desired: DesiredMotion | null = null
   private inFlight = false
   private inFlightSettled: Promise<void> | null = null
-  private speed: DemoSpeed = 'low'
+  private speed: DemoSpeed = 'medium'
   private stopReason: string | null = null
   private readonly transport: KeyboardLocomotionTransport
   private readonly intentAdapter: MotionIntentAdapter
@@ -141,20 +143,25 @@ export class KeyboardLocomotionController {
     this.disposed = true
   }
 
-  private target(): { forwardVelocity: number; yawRate: number } {
+  private target(): { forwardVelocity: number; lateralVelocity: number; yawRate: number } {
     const values = this.speed === 'low' ? LOW : MEDIUM
     const forward = this.pressed.has('KeyW') || this.pressed.has('ArrowUp')
     const reverse = this.pressed.has('KeyS') || this.pressed.has('ArrowDown')
     const left = this.pressed.has('KeyA') || this.pressed.has('ArrowLeft')
     const right = this.pressed.has('KeyD') || this.pressed.has('ArrowRight')
-    return { forwardVelocity: forward === reverse ? 0 : (forward ? values.forward : values.reverse),
-      yawRate: left === right ? 0 : (left ? values.yaw : -values.yaw) }
+    const yawLeft = this.pressed.has('KeyQ')
+    const yawRight = this.pressed.has('KeyE')
+    return {
+      forwardVelocity: forward === reverse ? 0 : (forward ? values.linear : -values.linear),
+      lateralVelocity: left === right ? 0 : (left ? values.linear : -values.linear),
+      yawRate: yawLeft === yawRight ? 0 : (yawLeft ? values.yaw : -values.yaw),
+    }
   }
 
   private readonly requestHeartbeat = (): void => {
     if (!this.enabled || this.disposed || this.resetting) return
     const target = this.target()
-    this.setDesired({ forwardVelocity: target.forwardVelocity, lateralVelocity: 0, yawRate: target.yawRate,
+    this.setDesired({ forwardVelocity: target.forwardVelocity, lateralVelocity: target.lateralVelocity, yawRate: target.yawRate,
       source: 'keyboard', createdAtMs: Date.now() })
   }
 

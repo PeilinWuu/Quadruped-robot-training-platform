@@ -94,7 +94,7 @@ class SimulationEngine {
   [[nodiscard]] nlohmann::json test_model_profile() const;
   [[nodiscard]] nlohmann::json test_locomotion_profile() const;
   [[nodiscard]] nlohmann::json test_locomotion_diagnostics() const;
-  [[nodiscard]] nlohmann::json test_static_mpc_diagnostics() const;
+  [[nodiscard]] nlohmann::json test_kinematic_diagnostics() const;
   [[nodiscard]] nlohmann::json test_performance_window(double wall_elapsed_seconds,
                                                         double simulation_elapsed_seconds,
                                                         std::uint64_t physics_steps);
@@ -107,7 +107,6 @@ class SimulationEngine {
  private:
   struct ModelDeleter { void operator()(mjModel* value) const noexcept; };
   struct DataDeleter { void operator()(mjData* value) const noexcept; };
-  struct ControllerRuntime;
   using ModelPtr = std::unique_ptr<mjModel, ModelDeleter>;
   using DataPtr = std::unique_ptr<mjData, DataDeleter>;
 
@@ -125,7 +124,7 @@ class SimulationEngine {
   void reset_locomotion_locked();
   std::array<double, 3> foot_position_locked(const mjData* data, std::size_t leg) const;
   nlohmann::json locomotion_telemetry_locked() const;
-  void apply_joint_pd_locked();
+  void apply_kinematic_animation_locked();
   void step_once_locked();
   void update_collision_state_locked();
   std::vector<nlohmann::json> take_collision_events_locked();
@@ -140,7 +139,6 @@ class SimulationEngine {
   SimulationState state_{SimulationState::unloaded};
   ModelPtr model_;
   DataPtr data_;
-  std::unique_ptr<ControllerRuntime> controller_runtime_;
   std::string model_id_;
   std::string environment_id_{"flat-ground-v1"};
   std::vector<int> joint_ids_;
@@ -154,11 +152,16 @@ class SimulationEngine {
   std::vector<CollisionCategory> geom_categories_;
   std::vector<std::string> geom_profile_names_;
   int root_body_id_{-1};
+  int root_qpos_address_{-1};
+  int root_dof_address_{-1};
   int imu_site_id_{-1};
   std::vector<double> home_joint_positions_;
   std::vector<double> joint_targets_;
   int home_keyframe_{-1};
-  bool test_pose_hold_{false};
+  bool kinematic_animation_{false};
+  double kinematic_yaw_{0.0};
+  double kinematic_gait_phase_{0.0};
+  std::array<bool, 4> kinematic_contacts_{{true, true, true, true}};
   double speed_{1.0};
   std::uint32_t pose_sequence_{0};
   std::uint32_t telemetry_sequence_{0};

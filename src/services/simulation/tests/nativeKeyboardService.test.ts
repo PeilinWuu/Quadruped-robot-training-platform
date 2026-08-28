@@ -20,10 +20,13 @@ const state: NativeKeyboardState = {
   backward: false,
   left: false,
   right: false,
+  yawLeft: false,
+  yawRight: false,
   resetting: false,
   speed: 'low',
   generation: 2,
-  forwardVelocity: 0.12,
+  forwardVelocity: 0.15,
+  lateralVelocity: 0,
   yawRate: 0,
 }
 
@@ -67,9 +70,9 @@ describe('native keyboard frontend bridge', () => {
   })
 
   it('maps native state changes into the existing keyboard UI observer', () => {
-    expect(keyboardUiState(state)).toMatchObject({ enabled: true, resetting: false, forwardVelocity: 0.12, yawRate: 0, speed: 'low' })
+    expect(keyboardUiState(state)).toMatchObject({ enabled: true, resetting: false, forwardVelocity: 0.15, lateralVelocity: 0, yawRate: 0, speed: 'low' })
     expect(keyboardUiState({ ...state, resetting: true })).toMatchObject({ enabled: true, resetting: true, stopReason: '正在重置机器人' })
-    expect(keyboardUiState({ ...state, windowFocused: false })).toMatchObject({ enabled: true, forwardVelocity: 0.12, stopReason: '窗口失焦，native 已自动停止' })
+    expect(keyboardUiState({ ...state, windowFocused: false })).toMatchObject({ enabled: true, forwardVelocity: 0.15, stopReason: '窗口失焦，native 已自动停止' })
   })
 
   it('keeps native keyboard armed only during the transient R reset states', () => {

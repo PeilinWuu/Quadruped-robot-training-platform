@@ -14,6 +14,8 @@ fn key_from_event(event: &gdk::EventKey) -> NativeKey {
             Some('s') => NativeKey::Backward,
             Some('a') => NativeKey::Left,
             Some('d') => NativeKey::Right,
+            Some('q') => NativeKey::YawLeft,
+            Some('e') => NativeKey::YawRight,
             Some('r') => NativeKey::Reset,
             _ => NativeKey::Other,
         },

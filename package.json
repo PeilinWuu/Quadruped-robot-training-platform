@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "setup:mujoco": "node scripts/fetch-mujoco.mjs",
-    "setup:mpc": "node scripts/fetch-mpc-dependencies.mjs",
     "setup:go2": "node scripts/fetch-go2-menagerie.mjs",
     "verify:go2": "node scripts/verify-go2-menagerie.mjs",
     "build:go2-visuals": "node scripts/build-go2-visuals.mjs",
@@ -25,7 +24,7 @@
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "npm run build:go2-visuals && npm run verify:go2-visuals && npm run test:node && npm run test:frontend",
     "test:node": "node --import tsx --test server/*.test.ts scripts/*.test.mjs",
-    "test:frontend": "vitest run src/services/scenes src/services/simulation src/services/control src/services/realRobotService.test.ts src/features/gaussian-viewer/robot src/features/gaussian-viewer/environment src/store src/components src/diagnostics",
+    "test:frontend": "vitest run src/services/scenes src/services/simulation src/services/control src/services/spatial src/services/realRobotService.test.ts src/features/gaussian-viewer/robot src/features/gaussian-viewer/environment src/store src/components src/diagnostics",
     "preview": "vite preview",
     "tauri": "node scripts/tauri-stable-cli.mjs"
   },

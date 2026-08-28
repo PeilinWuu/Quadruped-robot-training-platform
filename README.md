@@ -1,6 +1,6 @@
 # 建筑室内火灾四足机器人自主搜索与避障训练系统
 
-面向建筑室内火灾任务的四足机器人仿真、控制与监控桌面平台。项目以 React 19、TypeScript、Vite 和 Tauri 2 构建桌面界面，以 Rust 管理本地数据与仿真进程，并通过独立 C++ Sidecar 接入 MuJoCo 和 Unitree Go2 Convex MPC 运动控制。
+面向建筑室内火灾任务的四足机器人仿真、控制与监控桌面平台。项目以 React 19、TypeScript、Vite 和 Tauri 2 构建桌面界面，以 Rust 管理本地数据与仿真进程，并通过独立 C++ Sidecar 接入 MuJoCo 模型、坐标积分与轻量运动动画。
 
 当前版本已经打通 **三维场景显示 → 桌面命令 → MuJoCo 物理仿真 → Go2 运动控制 → 位姿与遥测回传** 的本地闭环。项目标题中的火灾感知、自主搜索、路径规划、避障、真实训练后端和实体机器人连接仍属于后续阶段，不应将界面中的 Mock 数据视为真实实验结果。
 
@@ -18,9 +18,8 @@
 - MuJoCo 3.11.0 固定步长物理仿真，支持模型加载、启动、暂停、单步、重置、停止和 0.25～4 倍速。
 - 机器人根位姿、12 个关节、足端接触、碰撞、控制状态和性能遥测回传。
 - PlayCanvas Robot Overlay、位姿插值、模型切换和跟随视角。
-- Go2 平地 Convex MPC：支持前进、后退、原地转向、弧线运动和受控停止。
-- 基于 OSQP 的地面反力二次规划、对角小跑步态、落足点规划、摆动轨迹和腿部控制。
-- 跌倒、越界、非足部接触、QP 连续失败、非有限控制量和持续执行器饱和保护。
+- Go2 轻量运动代理：按 vx/vy/yaw 直接积分根坐标，并播放程序化四足步态动画。
+- 仿真与真机共用运动意图；真机高层运动由 Unitree Sport API 执行，仿真不复现底层控制器。
 - Windows NSIS 与 Ubuntu Linux deb/AppImage 构建，以及固定版本第三方依赖校验。
 
 ### 仍为 Mock 或界面预留
@@ -64,11 +63,11 @@ Tauri 2 / Rust
                          │ stdin/stdout NDJSON
                          ▼
 C++17 Simulation Sidecar
-  模型加载、仿真循环、碰撞、遥测、控制器调度和故障保护
+  模型加载、坐标积分、程序化动画和遥测
                          │
                          ▼
-MuJoCo 3.11.0 + Eigen 3.4.0 + OSQP 1.0.0 + QDLDL 0.1.8
-  500 Hz 物理、250 Hz 腿控制、50 Hz Convex MPC
+MuJoCo 3.11.0
+  模型运动学更新、姿态/关节变换与传感器坐标输出
 ```
 
 一条运动指令的主要路径：
@@ -80,7 +79,7 @@ SimulationView
 → Tauri simulation adapter
 → Rust SimulationManager
 → C++ NDJSON protocol
-→ Go2ConvexMpcController
+→ Go2 Kinematic Animation
 → MuJoCo
 → pose / telemetry / collision events
 → PlayCanvas 和状态面板
@@ -88,22 +87,9 @@ SimulationView
 
 将仿真放在独立 Sidecar 中，可以隔离 UI 与高频物理循环；Rust 只允许启动和访问固定资源，前端不能执行任意本地程序。
 
-## Convex MPC 基线
+## 轻量运动代理
 
-当前控制器仅用于 `unitree-go2-menagerie` + `flat-ground-v1` 的 MuJoCo 仿真，不代表已经接入实体 Go2。
-
-- MuJoCo 时间步：`0.002 s`，即 500 Hz。
-- 腿控制频率：250 Hz。
-- MPC 频率：50 Hz。
-- 预测节点：10，节点间隔 `0.02 s`，预测时域 `0.2 s`。
-- 摩擦系数：0.8。
-- 单足最大法向力：120 N。
-- 单次求解预算：15 ms。
-- 前向速度范围：`-0.20～0.30 m/s`。
-- 偏航角速度范围：`-0.50～0.50 rad/s`。
-- 横向速度当前固定为 0。
-
-控制链包括 MuJoCo 状态读取、步态生成、参考平滑、落足点规划、质心动力学 MPC、OSQP 求解、摆动足轨迹和关节级控制。控制器在故障时进入安全状态，不会把未执行的指令标记为成功。
+`unitree-go2-menagerie` 在 `flat-ground-v1` 中不执行 MPC 或关节力矩求解。Sidecar 以 `0.002 s` 时间步直接积分前向、横向和偏航速度；根位姿因此可预测、不会因步态求解失败而崩溃。12 个关节使用确定性的对角步态曲线，仅用于表现运动趋势，不代表实体 Go2 的运动学或动力学。
 
 ## 环境要求
 
@@ -144,14 +130,13 @@ sudo apt install build-essential git cmake ninja-build pkg-config curl wget file
 npm ci
 ```
 
-首次构建 MPC Sidecar 前准备固定版本的 Eigen、OSQP 和 QDLDL：
+首次构建 Sidecar 前准备固定版本的 MuJoCo：
 
 ```bash
-npm run setup:mpc
 npm run setup:mujoco
 ```
 
-两个 setup 命令是唯一允许下载 C++ 依赖的步骤，会按平台选择 MuJoCo 3.11.0 官方资产并校验文件大小与 SHA-256。`npm run build:sidecar` 只使用已验证的本地缓存，离线配置 CMake、编译 Release Sidecar并运行 C++ 测试。下载缓存和构建产物不会提交到 Git。
+该 setup 命令会按平台选择 MuJoCo 3.11.0 官方资产并校验文件大小与 SHA-256。`npm run build:sidecar` 只使用已验证的本地缓存，离线配置 CMake、编译 Release Sidecar并运行 C++ 测试。
 
 平台资源对应关系：
 
@@ -198,7 +183,7 @@ npm run dev:api
 
 ### Tauri 桌面开发模式
 
-首次运行前先完成 `npm ci`、`npm run setup:mpc` 和 `npm run setup:mujoco`，然后执行：
+首次运行前先完成 `npm ci` 和 `npm run setup:mujoco`，然后执行：
 
 ```bash
 npm run tauri dev
@@ -276,7 +261,7 @@ C++ Sidecar 的配置、编译和 CTest：
 npm run build:sidecar
 ```
 
-该测试集覆盖协议、模型加载、确定性仿真、进程生命周期、MPC 数学核心、20 秒步态集成，以及前进、后退、左右转向、左右弧线和停止验收。
+该测试集覆盖协议、模型加载、确定性坐标积分、程序化关节动画和进程生命周期。
 
 Rust 桌面端检查：
 
@@ -292,10 +277,7 @@ cargo check
 
 - Node/资源/认证测试：7/7 通过；
 - 前端测试：98/98 通过；
-- C++ 协议检查：139 项通过；
-- MPC 核心检查：56 项通过；
-- 20 秒步态集成检查：3031 项通过；
-- MPC 运动验收检查：163 项通过；
+- C++ 协议、坐标积分与动画检查通过；
 - TypeScript 类型检查通过。
 
 这些结果是确定性 MuJoCo 仿真验证，不代表实体机器人或真实火灾环境性能。
@@ -348,10 +330,9 @@ src-tauri/
 └─ tauri.conf.json
 
 native/mujoco-sidecar/
-├─ src/controllers/mpc/                # Convex MPC、步态、落足与腿控制
-├─ src/simulation.cpp                  # MuJoCo 仿真与控制循环
+├─ src/simulation.cpp                  # MuJoCo 模型、坐标积分与程序化动画
 ├─ src/protocol.cpp                    # NDJSON 协议
-├─ tests/                              # 协议、MPC、集成与验收测试
+├─ tests/                              # 协议、坐标与动画测试
 ├─ CMakeLists.txt
 └─ README.md
 
@@ -375,7 +356,7 @@ scripts/                               # 固定依赖获取、验证和构建脚
 
 1. 建立与 MuJoCo 一致的可碰撞场景几何，并解决 SOG 视觉场景与物理坐标配准。
 2. 接入真实或仿真的 RGB-D、热成像、LiDAR 和火灾环境观测。
-3. 构建最小自主闭环：定位/地图 → 目标选择 → 全局规划 → 局部避障 → 速度目标 → 现有 MPC。
+3. 构建最小自主闭环：定位/地图 → 目标选择 → 全局规划 → 局部避障 → 统一速度目标。
 4. 将温度、烟雾、结构风险和可见度纳入搜索与路径代价。
 5. 建立覆盖率、搜索成功率、碰撞率、耗时、路径长度、能耗和稳定性评价体系。
 6. 增加坡地、台阶、低摩擦、外力扰动、传感器噪声和模型随机化测试。

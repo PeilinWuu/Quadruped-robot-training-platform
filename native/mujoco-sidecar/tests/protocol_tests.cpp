@@ -234,55 +234,34 @@ int main() {
       return item["category"] == category;
     }), "Go2 collision category mapped");
   }
-  expect(engine.test_set_root_state({0.0, 0.0, 0.10}, {0.7071067811865476, 0.7071067811865476, 0.0, 0.0}),
-         "test fallen root state");
-  engine.step(101);
-  const auto fault_telemetry = engine.get_latest_telemetry().payload;
-  const auto fallen = fault_telemetry["collision"];
-  expect(fallen["isFallen"] && fallen["fallReason"] != "none", "debounced fall detected");
-  expect(fault_telemetry["locomotion"]["state"] == "fault" &&
-         fault_telemetry["locomotion"]["faultReason"] == "fall-detected",
-         "forced fall telemetry state and reason are consistent");
-  for (int frame = 0; frame < 10; ++frame) {
-    engine.step(1);
-    const auto sustained_fault = engine.get_latest_telemetry().payload["locomotion"];
-    expect(sustained_fault["state"] == "fault" &&
-           sustained_fault["faultReason"] == "fall-detected",
-           "sustained fault telemetry remains consistent");
-  }
-  engine.reset();
-  const auto reset_telemetry = engine.get_latest_telemetry().payload;
-  expect(!reset_telemetry["collision"]["isFallen"] &&
-         reset_telemetry["locomotion"]["state"] == "standing" &&
-         reset_telemetry["locomotion"]["faultReason"].is_null(),
-         "reset clears fall and restores standing without sidecar restart");
   expect(finite_json_numbers(go2_telemetry) && go2_telemetry.dump().size() < sidecar::kMaxLineBytes, "Go2 telemetry finite and bounded");
   engine.reset();
-  for (int second = 0; second < 10; ++second) expect(engine.step(500).ok, "static MPC stand second");
-  const auto static_mpc = engine.test_static_mpc_diagnostics();
-  std::cout << "D5V_MPC_STATIC_10S=" << static_mpc << '\n';
-  expect(static_mpc["fault"].is_null() && static_mpc["qpFailureCount"] == 0,
-         "static MPC has no fault or QP failure");
-  expect(static_mpc["rootPosition"][2].get<double>() > 0.18 &&
-         static_mpc["rootPosition"][2].get<double>() < 0.35,
-         "static MPC base height bounded");
-  expect(!static_mpc["collision"]["isFallen"].get<bool>() &&
-         static_mpc["collision"]["torsoContacts"].get<int>() == 0 &&
-         static_mpc["collision"]["headContacts"].get<int>() == 0,
-         "static MPC no fall torso or head contact");
-  expect(static_mpc["solverMeanMs"].get<double>() < 15.0 &&
-         static_mpc["solverMaxMs"].get<double>() < 15.0,
-         "static MPC stays within 50Hz budget");
-  expect(static_mpc["actuatorSaturationCount"].get<std::uint64_t>() < 250,
-         "static MPC has no persistent saturation");
-  engine.reset();
-  const auto mpc_telemetry = engine.get_latest_telemetry().payload["locomotion"];
-  expect(mpc_telemetry["controllerId"] == "go2-convex-mpc-v1" &&
-         mpc_telemetry["availability"] == "available", "Go2 MPC telemetry identity");
-  expect(mpc_telemetry["mpcFrequencyHz"] == 50 && mpc_telemetry["legControllerFrequencyHz"] == 250 &&
-         mpc_telemetry["horizonSteps"] == 10, "Go2 MPC frequencies and horizon");
-  expect(!mpc_telemetry.contains("compensationEnabled") && !mpc_telemetry.contains("ikFailureCount") &&
-         !mpc_telemetry.contains("swingLeg"), "legacy crawl telemetry removed");
+  const auto home = engine.latest_pose();
+  sidecar::MotionCommand animated{20, sidecar::MotionMode::locomotion, 0.30, 0.20, 0.0, 0.30, 500};
+  expect(engine.set_motion_command(animated).ok, "kinematic command accepted");
+  const auto animated_pose = engine.step(500).payload;
+  expect(std::abs(animated_pose["rootPosition"][0].get<double>() -
+                  home["rootPosition"][0].get<double>() - 0.30) < 1e-6,
+         "kinematic forward coordinate integrates exactly");
+  expect(std::abs(animated_pose["rootPosition"][2].get<double>() -
+                  home["rootPosition"][2].get<double>() + 0.20) < 1e-6,
+         "kinematic lateral coordinate integrates exactly");
+  expect(animated_pose["joints"] != home["joints"], "procedural gait animates joints");
+  const auto animation = engine.test_kinematic_diagnostics();
+  expect(animation["animationPhase"].get<double>() > 0.0,
+         "kinematic animation phase advances");
+  const auto animation_telemetry = engine.get_latest_telemetry().payload["locomotion"];
+  expect(animation_telemetry["controllerId"] == "go2-kinematic-animation-v1" &&
+         animation_telemetry["availability"] == "available", "kinematic telemetry identity");
+  expect(animation_telemetry["integratedForwardVelocity"] == 0.30 &&
+         animation_telemetry["integratedLateralVelocity"] == 0.20 &&
+         !animation_telemetry.contains("solverStatus") &&
+         !animation_telemetry.contains("mpcFrequencyHz"),
+         "kinematic telemetry contains integration data only");
+  engine.clear_motion_command();
+  const auto stopped_position = engine.step(1).payload["rootPosition"];
+  expect(engine.step(500).payload["rootPosition"] == stopped_position,
+         "clear command freezes kinematic coordinates");
   for (int index = 0; index < 5; ++index) {
     const auto advanced = engine.step(1000);
     expect(advanced.ok && finite_pose(advanced.payload), "Go2 thousands stable");
@@ -314,7 +293,7 @@ int main() {
   expect(Json::parse(protocol.process_line(command("r", "reset", Json::object())).response)["payload"]["state"] == "loaded", "protocol reset");
   expect(Json::parse(protocol.process_line(command("x", "stop", Json::object())).response)["payload"]["state"] == "stopped", "protocol stop");
   expect(Json::parse(protocol.process_line(command("v", "set_speed", {{"speed", 1.0}})).response)["payload"]["speed"] == 1.0, "protocol speed");
-  const Json motion_payload{{"sequence", 1}, {"mode", "locomotion"}, {"forwardVelocity", 0.2}, {"lateralVelocity", 0.0}, {"yawRate", 0.1}, {"bodyHeight", 0.3}, {"validForMs", 500}};
+  const Json motion_payload{{"sequence", 1}, {"mode", "locomotion"}, {"forwardVelocity", 0.2}, {"lateralVelocity", 0.15}, {"yawRate", 0.1}, {"bodyHeight", 0.3}, {"validForMs", 500}};
   expect(Json::parse(protocol.process_line(command("mc", "set_motion_command", motion_payload)).response)["type"] == "motion_command_changed", "protocol motion command");
   expect(Json::parse(protocol.process_line(command("tc", "set_telemetry_rate", {{"rateHz", 50}})).response)["payload"]["rateHz"] == 50, "protocol telemetry rate");
   expect(Json::parse(protocol.process_line(command("gt", "get_latest_telemetry", Json::object())).response)["type"] == "telemetry", "protocol latest telemetry");

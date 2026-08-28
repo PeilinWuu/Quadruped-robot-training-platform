@@ -230,8 +230,8 @@ impl MotionCommand {
             || !self.lateral_velocity.is_finite()
             || !self.yaw_rate.is_finite()
             || !self.body_height.is_finite()
-            || !(-0.20..=0.30).contains(&self.forward_velocity)
-            || self.lateral_velocity != 0.0
+            || !(-0.30..=0.30).contains(&self.forward_velocity)
+            || !(-0.30..=0.30).contains(&self.lateral_velocity)
             || !(-0.50..=0.50).contains(&self.yaw_rate)
             || !(0.18..=0.40).contains(&self.body_height)
             || !(100..=2000).contains(&self.valid_for_ms)
@@ -249,7 +249,7 @@ impl MotionCommand {
 #[serde(rename_all = "kebab-case")]
 pub enum ControllerAvailability {
     StandHold,
-    Go2ConvexMpcV1,
+    Go2KinematicAnimationV1,
     NotImplemented,
 }
 
@@ -290,7 +290,7 @@ impl MotionCommandStatus {
             || (stand && !self.applied_by_controller)
             || match self.controller_availability {
                 ControllerAvailability::StandHold => !stand || self.body_height_applied,
-                ControllerAvailability::Go2ConvexMpcV1 => {
+                ControllerAvailability::Go2KinematicAnimationV1 => {
                     !self.applied_by_controller || !self.body_height_applied
                 }
                 ControllerAvailability::NotImplemented => {
@@ -389,49 +389,21 @@ pub struct LocomotionTelemetry {
     pub availability: LocomotionAvailability,
     pub state: LocomotionState,
     pub commanded_forward_velocity: f64,
-    pub filtered_forward_velocity: f64,
-    pub measured_forward_velocity: f64,
+    pub commanded_lateral_velocity: f64,
     pub commanded_yaw_rate: f64,
-    pub filtered_yaw_rate: f64,
-    pub measured_yaw_rate: f64,
-    pub mpc_frequency_hz: u32,
-    pub leg_controller_frequency_hz: u32,
-    pub horizon_steps: u32,
+    pub integrated_forward_velocity: f64,
+    pub integrated_lateral_velocity: f64,
+    pub integrated_yaw_rate: f64,
     pub gait_frequency_hz: f64,
     pub duty_factor: f64,
     pub gait_phase: f64,
     pub expected_contacts: [bool; 4],
-    pub actual_contacts: [bool; 4],
-    pub desired_ground_forces: [[f64; 3]; 4],
-    pub actual_ground_forces: [[f64; 3]; 4],
-    pub solver_status: String,
-    pub solver_iterations: u32,
-    pub solver_mean_ms: f64,
-    pub solver_max_ms: f64,
-    pub qp_failure_count: u64,
-    pub touchdown_event_count: u64,
-    pub on_time_touchdown_count: u64,
-    pub late_touchdown_event_count: u64,
-    pub early_touchdown_event_count: u64,
-    pub touchdown_timeout_count: u64,
-    pub touchdown_latency_mean_ms: f64,
-    pub touchdown_latency_max_ms: f64,
-    pub touchdown_latency_p95_ms: f64,
-    pub foot_slip_summary: f64,
-    pub joint_limit_clip_count: u64,
-    pub actuator_saturation_count: u64,
     pub fault_reason: Option<String>,
 }
 
 impl LocomotionTelemetry {
     fn validate(&self, model_id: &str) -> Result<(), SimulationError> {
-        let forces_finite = self
-            .desired_ground_forces
-            .iter()
-            .chain(self.actual_ground_forces.iter())
-            .flatten()
-            .all(|value| value.is_finite());
-        if self.controller_id != "go2-convex-mpc-v1"
+        if self.controller_id != "go2-kinematic-animation-v1"
             || self.availability
                 != if model_id == GO2_MODEL_ID {
                     LocomotionAvailability::Available
@@ -440,38 +412,18 @@ impl LocomotionTelemetry {
                 }
             || !finite([
                 self.commanded_forward_velocity,
-                self.filtered_forward_velocity,
-                self.measured_forward_velocity,
+                self.commanded_lateral_velocity,
                 self.commanded_yaw_rate,
-                self.filtered_yaw_rate,
-                self.measured_yaw_rate,
+                self.integrated_forward_velocity,
+                self.integrated_lateral_velocity,
+                self.integrated_yaw_rate,
                 self.gait_frequency_hz,
                 self.duty_factor,
                 self.gait_phase,
-                self.solver_mean_ms,
-                self.solver_max_ms,
-                self.touchdown_latency_mean_ms,
-                self.touchdown_latency_max_ms,
-                self.touchdown_latency_p95_ms,
-                self.foot_slip_summary,
             ])
-            || !forces_finite
-            || self.mpc_frequency_hz != 50
-            || self.leg_controller_frequency_hz != 250
-            || self.horizon_steps != 10
             || !(0.0..1.0).contains(&self.gait_phase)
             || !(0.0..=1.0).contains(&self.duty_factor)
             || self.gait_frequency_hz <= 0.0
-            || self.touchdown_event_count
-                != self.on_time_touchdown_count
-                    + self.late_touchdown_event_count
-                    + self.early_touchdown_event_count
-                    + self.touchdown_timeout_count
-            || self.solver_status.is_empty()
-            || self.solver_status.len() > 64
-            || self.solver_mean_ms < 0.0
-            || self.solver_max_ms < self.solver_mean_ms
-            || self.foot_slip_summary < 0.0
             || self
                 .fault_reason
                 .as_ref()
@@ -1176,41 +1128,19 @@ mod telemetry_tests {
                 controller_availability: ControllerAvailability::StandHold,
             },
             locomotion: LocomotionTelemetry {
-                controller_id: "go2-convex-mpc-v1".into(),
+                controller_id: "go2-kinematic-animation-v1".into(),
                 availability: LocomotionAvailability::Available,
                 state: LocomotionState::Standing,
                 commanded_forward_velocity: 0.0,
-                filtered_forward_velocity: 0.0,
-                measured_forward_velocity: 0.0,
+                commanded_lateral_velocity: 0.0,
                 commanded_yaw_rate: 0.0,
-                filtered_yaw_rate: 0.0,
-                measured_yaw_rate: 0.0,
-                mpc_frequency_hz: 50,
-                leg_controller_frequency_hz: 250,
-                horizon_steps: 10,
+                integrated_forward_velocity: 0.0,
+                integrated_lateral_velocity: 0.0,
+                integrated_yaw_rate: 0.0,
                 gait_frequency_hz: 2.2,
                 duty_factor: 0.65,
                 gait_phase: 0.0,
                 expected_contacts: [true; 4],
-                actual_contacts: [true; 4],
-                desired_ground_forces: [[0.0, 0.0, 37.0]; 4],
-                actual_ground_forces: [[0.0, 0.0, 37.0]; 4],
-                solver_status: "solved".into(),
-                solver_iterations: 25,
-                solver_mean_ms: 1.0,
-                solver_max_ms: 2.0,
-                qp_failure_count: 0,
-                touchdown_event_count: 0,
-                on_time_touchdown_count: 0,
-                late_touchdown_event_count: 0,
-                early_touchdown_event_count: 0,
-                touchdown_timeout_count: 0,
-                touchdown_latency_mean_ms: 0.0,
-                touchdown_latency_max_ms: 0.0,
-                touchdown_latency_p95_ms: 0.0,
-                foot_slip_summary: 0.0,
-                joint_limit_clip_count: 0,
-                actuator_saturation_count: 0,
                 fault_reason: None,
             },
             performance: PerformanceTelemetry {
@@ -1267,16 +1197,12 @@ mod telemetry_tests {
         value.locomotion.gait_phase = f64::NAN;
         assert!(value.validate().is_err());
         value = telemetry();
-        value.locomotion.touchdown_event_count = 1;
-        assert!(value.validate().is_err());
-        value.locomotion.on_time_touchdown_count = 1;
-        assert!(value.validate().is_ok());
-        value.locomotion.touchdown_latency_p95_ms = f64::NAN;
+        value.locomotion.integrated_lateral_velocity = f64::NAN;
         assert!(value.validate().is_err());
         value = telemetry();
         value.locomotion.state = LocomotionState::Fault;
         assert!(value.validate().is_err());
-        value.locomotion.fault_reason = Some("mpc-infeasible".into());
+        value.locomotion.fault_reason = Some("animation-state-invalid".into());
         assert!(value.validate().is_ok());
         value.locomotion.fault_reason = Some("x".repeat(129));
         assert!(value.validate().is_err());
@@ -1290,9 +1216,11 @@ mod telemetry_tests {
             value.locomotion.state = LocomotionState::Fault;
             value.locomotion.fault_reason = Some("fall-detected".into());
             value.locomotion.commanded_forward_velocity = 0.0;
-            value.locomotion.filtered_forward_velocity = 0.0;
+            value.locomotion.commanded_lateral_velocity = 0.0;
             value.locomotion.commanded_yaw_rate = 0.0;
-            value.locomotion.filtered_yaw_rate = 0.0;
+            value.locomotion.integrated_forward_velocity = 0.0;
+            value.locomotion.integrated_lateral_velocity = 0.0;
+            value.locomotion.integrated_yaw_rate = 0.0;
             let frame = json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "requestId": null,
@@ -1306,7 +1234,7 @@ mod telemetry_tests {
     }
 
     #[test]
-    fn locomotion_unknown_controller_state_and_negative_counter_are_rejected() {
+    fn locomotion_unknown_controller_state_and_retired_fields_are_rejected() {
         let mut json = serde_json::to_value(telemetry()).unwrap();
         json["locomotion"]["controllerId"] = json!("unknown");
         assert!(serde_json::from_value::<RobotTelemetry>(json.clone())
@@ -1317,7 +1245,7 @@ mod telemetry_tests {
         json["locomotion"]["state"] = json!("flying");
         assert!(serde_json::from_value::<RobotTelemetry>(json).is_err());
         json = serde_json::to_value(telemetry()).unwrap();
-        json["locomotion"]["qpFailureCount"] = json!(-1);
+        json["locomotion"]["solverStatus"] = json!("retired");
         assert!(serde_json::from_value::<RobotTelemetry>(json).is_err());
     }
 

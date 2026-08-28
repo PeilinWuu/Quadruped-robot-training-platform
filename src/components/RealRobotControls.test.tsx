@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { RealRobotControls } from './RealRobotControls'
 import type { RealRobotStatus } from '../services/realRobotService'
+import { spatialStateFromSimulationPose } from '../services/spatial/simulationSpatialAdapter'
 
 const status = (overrides: Partial<RealRobotStatus> = {}): RealRobotStatus => ({
   state: 'ready', available: true, live: false, controlEnabled: false, activeMove: false,
@@ -37,14 +38,34 @@ describe('RealRobotControls', () => {
     expect(html).toContain('不参与控制授权或运动判定')
   })
 
-  it('documents the guarded real keyboard mapping and watchdog', () => {
+  it('documents the unified keyboard target and watchdog', () => {
     const html = renderToStaticMarkup(<RealRobotControls initialStatus={status({
       live: true, robotOnline: true, telemetryAgeMs: 10, controlEnabled: true,
     })}/>)
-    expect(html).toContain('启用真机键盘')
+    expect(html).toContain('真机已加入统一键盘目标')
+    expect(html).toContain('启用同步键盘控制')
     expect(html).toContain('W/S 前后 · A/D 横移 · Q/E 旋转')
     expect(html).toContain('保持期间每 250 ms 刷新一次高层 Move')
     expect(html).toContain('vx/vy ±0.30 m/s · yaw ±0.50 rad/s')
-    expect(html).toContain('保持期间周期刷新')
+    expect(html).toContain('真机离线或未解锁时，键盘只控制仿真')
+  })
+
+  it('shows real spatial input and enables origin alignment with a simulation reference', () => {
+    const reference = spatialStateFromSimulationPose({
+      sequence: 9, simulationTime: 1, wallTime: 1000,
+      rootPosition: [2, 1, -3], rootOrientation: [0, 0, 0, 1], joints: [],
+    })
+    const html = renderToStaticMarkup(<RealRobotControls referenceSpatialState={reference} initialStatus={status({
+      live: true, robotOnline: true, telemetryAgeMs: 10,
+      telemetry: {
+        lowState: { tick: 5, batterySoc: 80, powerVoltage: 28, powerCurrent: 1, rpy: [0, 0, .2], gyroscope: [0, 0, 0], accelerometer: [0, 0, 9.8], footForce: [1, 1, 1, 1], joints: [] },
+        sportModeState: { errorCode: 0, mode: 1, gaitType: 1, position: [10, -4, .3], velocity: [0, 0, 0], bodyHeight: .3, yawSpeed: 0 },
+      },
+    })}/>)
+    expect(html).toContain('真机/仿真统一坐标')
+    expect(html).toContain('10.000 / -4.000 / 0.300')
+    expect(html).toContain('以当前仿真位姿设置同步原点')
+    expect(html).toContain('Sport position + IMU RPY · low confidence')
+    expect(html).not.toContain('请先启动 MuJoCo 仿真')
   })
 })

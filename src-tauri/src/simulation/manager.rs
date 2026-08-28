@@ -1528,7 +1528,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 target.controller_availability,
-                super::super::protocol::ControllerAvailability::Go2ConvexMpcV1
+                super::super::protocol::ControllerAvailability::Go2KinematicAnimationV1
             );
             thread::sleep(Duration::from_millis(60));
         }
@@ -1541,26 +1541,23 @@ mod tests {
         assert!((0.8..=1.2).contains(&gait.performance.real_time_factor));
         assert!((0.8..=1.2).contains(&raw_go2_rtf));
         assert!((gait.performance.real_time_factor - raw_go2_rtf).abs() <= 0.2);
-        assert_eq!(gait.locomotion.controller_id, "go2-convex-mpc-v1");
+        assert_eq!(gait.locomotion.controller_id, "go2-kinematic-animation-v1");
         assert_eq!(
             gait.locomotion.availability,
             super::super::protocol::LocomotionAvailability::Available
         );
         assert!(matches!(
             gait.locomotion.state,
-            super::super::protocol::LocomotionState::EnteringTrot
-                | super::super::protocol::LocomotionState::Locomotion
+            super::super::protocol::LocomotionState::Locomotion
         ));
         println!(
-            "D6_ARCH1_GO2_METRICS physics_hz={:.2} rtf={:.3} raw_rtf={raw_go2_rtf:.3} wall_seconds={go2_wall_elapsed:.3} simulation_seconds={go2_simulation_elapsed:.3} leg_hz={} mpc_hz={} solver_mean_ms={:.3} solver_max_ms={:.3} qp_failures={} actuator_saturation={}",
+            "D6_ARCH1_GO2_KINEMATIC_METRICS physics_hz={:.2} rtf={:.3} raw_rtf={raw_go2_rtf:.3} wall_seconds={go2_wall_elapsed:.3} simulation_seconds={go2_simulation_elapsed:.3} gait_hz={:.2} integrated_forward={:.3} integrated_lateral={:.3} integrated_yaw={:.3}",
             gait.performance.physics_frequency_hz,
             gait.performance.real_time_factor,
-            gait.locomotion.leg_controller_frequency_hz,
-            gait.locomotion.mpc_frequency_hz,
-            gait.locomotion.solver_mean_ms,
-            gait.locomotion.solver_max_ms,
-            gait.locomotion.qp_failure_count,
-            gait.locomotion.actuator_saturation_count,
+            gait.locomotion.gait_frequency_hz,
+            gait.locomotion.integrated_forward_velocity,
+            gait.locomotion.integrated_lateral_velocity,
+            gait.locomotion.integrated_yaw_rate,
         );
         manager.clear_motion_command().unwrap();
         assert_eq!(manager.run_pause().unwrap(), SimulationState::Paused);
@@ -1575,7 +1572,7 @@ mod tests {
     }
 
     #[test]
-    fn sustained_go2_locomotion_keeps_controller_fault_inside_live_sidecar() {
+    fn sustained_go2_kinematic_animation_stays_protocol_valid() {
         let _guard = guard();
         let manager = SimulationManager::new();
         manager
@@ -1638,9 +1635,10 @@ mod tests {
         assert_eq!(protocol_error_total, 0);
         assert_eq!(manager.status().state, LifecycleState::Ready);
         assert!(manager.ping().unwrap().nonce_verified);
-        let was_faulted = manager
-            .latest_telemetry()
-            .is_some_and(|telemetry| telemetry.locomotion.state == LocomotionState::Fault);
+        assert!(manager.latest_telemetry().is_some_and(|telemetry| {
+            telemetry.locomotion.state != LocomotionState::Fault
+                && telemetry.locomotion.fault_reason.is_none()
+        }));
         assert_eq!(
             manager.reset_preserving_run_state().unwrap(),
             SimulationState::Running
@@ -1648,9 +1646,7 @@ mod tests {
         assert!(manager
             .latest_pose()
             .is_some_and(|pose| pose.simulation_time < 0.1));
-        if was_faulted {
-            assert!(manager.ping().unwrap().nonce_verified);
-        }
+        assert!(manager.ping().unwrap().nonce_verified);
         manager.stop().unwrap();
     }
 
