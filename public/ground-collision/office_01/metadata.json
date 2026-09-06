@@ -1,0 +1,20 @@
+{
+  "schema": "gs-ground-collision-v1",
+  "source": "D:\\interiorgs_data\\office_01\\3dgs_explicit.ply",
+  "sourceCoordinateSystem": "InteriorGS right/back/up metres",
+  "viewerCoordinateSystem": "PlayCanvas x/up/-back",
+  "cellSize": 0.1,
+  "originXY": [
+    -2.010866165161133,
+    -6.793889741897583
+  ],
+  "shape": [
+    119,
+    86
+  ],
+  "globalFloorHeight": -0.0003258666838519275,
+  "candidateCount": 171597,
+  "validCellCount": 8233,
+  "filledCellCount": 2001,
+  "scope": "ground-only; no furniture or wall collision"
+}

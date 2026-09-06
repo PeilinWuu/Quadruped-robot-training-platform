@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run build:sidecar && npm run dev:web",
+    "beforeDevCommand": "npm run dev:web",
     "beforeBuildCommand": "npm run build:desktop"
   },
   "app": {
@@ -33,11 +33,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "resources": [
-      "resources/sidecar/",
-      "resources/simulation/",
-      "resources/licenses/"
-    ],
+    "resources": ["resources/licenses/"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

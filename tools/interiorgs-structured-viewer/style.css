@@ -1,0 +1,40 @@
+:root {
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  color: #e7edf2;
+  background: #080d11;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+#viewport { display: block; width: 100%; height: 100%; }
+.panel {
+  position: fixed; top: 18px; left: 18px; width: 310px; max-height: calc(100vh - 36px);
+  overflow: auto; padding: 20px; border: 1px solid rgba(151, 190, 205, .28);
+  border-radius: 14px; background: rgba(9, 18, 23, .88); backdrop-filter: blur(15px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .34);
+}
+.eyebrow { color: #72d5d0; font-size: 11px; letter-spacing: .14em; }
+h1 { margin: 7px 0 10px; font-size: 22px; }
+h2 { margin: 0 0 9px; color: #aebfc8; font-size: 12px; letter-spacing: .06em; }
+.status { color: #90a6af; font-size: 12px; line-height: 1.5; }
+section { margin-top: 18px; padding-top: 15px; border-top: 1px solid rgba(155, 189, 201, .14); }
+label { display: block; margin: 8px 0; font-size: 13px; cursor: pointer; }
+input { margin-right: 8px; accent-color: #5fd2c9; }
+input[type="range"] { width: 100%; margin: 10px 0 0; }
+button { padding: 7px 10px; border: 1px solid #3d5c68; border-radius: 7px; color: #eaf2f5;
+  background: #162832; cursor: pointer; }
+button:hover { background: #203943; }
+.transport { display: flex; align-items: center; gap: 7px; }
+.transport span { margin-left: auto; color: #92a9b2; font-size: 11px; }
+select { width: 100%; padding: 8px 9px; border: 1px solid #36515d; border-radius: 7px;
+  color: #eaf2f5; background: #12212a; }
+.selection { margin-top: 8px; color: #89a1aa; font-size: 12px; }
+.legend div { margin: 7px 0; color: #aebfc8; font-size: 12px; }
+.legend i { display: inline-block; width: 18px; height: 3px; margin-right: 8px; vertical-align: middle; }
+.legend .door { background: #ffcd58; } .legend .room { background: #46d9ba; }
+.legend .wall { background: #62a9ff; } .legend .hole { background: #ff6e80; }
+.legend .roi { background: #b07cff; } .legend .ignition { background: #ff542e; }
+.legend .flame { background: #ffb12b; } .legend .smoke { background: #66727b; }
+.metrics { color: #bdd0d7; font-size: 12px; line-height: 1.7; }
+.metrics b { color: #fff; font-weight: 600; }
+.help { margin: 18px 0 0; color: #69818b; font-size: 11px; }
+@media (max-width: 700px) { .panel { width: 265px; } }

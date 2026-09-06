@@ -1,4 +1,4 @@
-import { Application, Entity, Quat } from 'playcanvas'
+import { Application, Entity, Quat, Vec3 } from 'playcanvas'
 import type { RobotPose, SimulationModelId } from '../../../services/simulation/types'
 import { DEFAULT_SIMULATION_MODEL_ID } from '../../../services/simulation/types'
 import { createRobotRig } from './RobotRigFactory'
@@ -23,6 +23,11 @@ export interface RobotOverlayStatus {
   primitiveCount: number
   modelId: SimulationModelId
   visual: Go2MeshStatus | null
+}
+
+export interface RobotCameraPose {
+  position: [number, number, number]
+  rotation: [number, number, number, number]
 }
 
 export const DEFAULT_ROBOT_CALIBRATION: RobotOverlayCalibration = {
@@ -112,12 +117,33 @@ export class RobotOverlayRuntime {
   }
 
   resetCalibration(): void { this.setCalibration(DEFAULT_ROBOT_CALIBRATION) }
+  /** Keep the robot in the same scene frame as the Gaussian entity. */
+  setSceneOrientation(quaternion: [number, number, number, number]): void {
+    const rotation = normalizeQuaternionTuple(quaternion)
+    if (!rotation) return
+    this.overlayRoot.setLocalRotation(new Quat(...rotation))
+  }
   setVisualMode(mode: Go2VisualMode): void {
     this.visualMode = mode
     if (this.rig instanceof Go2MeshRig) this.rig.setMode(mode)
   }
   reloadVisuals(): void { if (this.rig instanceof Go2MeshRig) this.rig.retry() }
   getBounds(): RobotBounds | null { return this.hasPose ? this.rig.getBounds() : null }
+  getRobotCameraPose(): RobotCameraPose | null {
+    if (!this.hasPose || this.disposed) return null
+    // Go2 front sensor is fixed to the torso. The local +X axis is robot-forward.
+    const position = this.rig.robotRoot.getWorldTransform()
+      .transformPoint(new Vec3(.4, .055, 0), new Vec3())
+    // A PlayCanvas camera looks down local -Z, so rotate -90 degrees around Y to face +X.
+    const rotation = new Quat().mul2(
+      this.rig.robotRoot.getRotation(),
+      new Quat().setFromAxisAngle(Vec3.UP, -90),
+    ).normalize()
+    return {
+      position: [position.x, position.y, position.z],
+      rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+    }
+  }
   getStatus(): RobotOverlayStatus {
     return {
       visible: this.visible && this.hasPose, hasPose: this.hasPose, sequence: this.sequence,

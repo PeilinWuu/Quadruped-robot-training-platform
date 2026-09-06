@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>InteriorGS 结构化场景解析</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <canvas id="viewport"></canvas>
+    <aside class="panel">
+      <div class="eyebrow">INTERIORGS · OFFICE_01</div>
+      <h1>结构化场景解析</h1>
+      <div id="status" class="status">准备加载场景…</div>
+
+      <section>
+        <h2>解析图层</h2>
+        <label><input id="occupancy" type="checkbox" /> 可通行占用图</label>
+        <label><input id="rooms" type="checkbox" checked /> 房间轮廓</label>
+        <label><input id="walls" type="checkbox" checked /> 墙体结构</label>
+        <label><input id="holes" type="checkbox" checked /> 门 / 窗 / 洞口</label>
+        <label><input id="boxes" type="checkbox" checked /> 语义包围盒</label>
+        <label><input id="fireRoi" type="checkbox" checked /> 火焰模拟 ROI / 点火盒</label>
+        <label><input id="fire" type="checkbox" checked /> FieryGS 火焰 / 烟雾</label>
+      </section>
+
+      <section class="fire-controls">
+        <h2>火焰序列</h2>
+        <div class="transport">
+          <button id="firePlay" type="button">暂停</button>
+          <button id="fireFocus" type="button">聚焦火源</button>
+          <button id="cleanView" type="button">纯场景</button>
+          <span id="fireReadout">帧 1 / 40</span>
+        </div>
+        <input id="fireFrame" type="range" min="0" max="39" value="1" step="1" />
+        <div id="fireStats" class="selection">准备载入体数据…</div>
+      </section>
+
+      <section>
+        <h2>语义筛选</h2>
+        <select id="category" aria-label="语义类别"></select>
+        <div id="selection" class="selection"></div>
+      </section>
+
+      <section class="legend">
+        <h2>颜色</h2>
+        <div><i class="door"></i>门 / 窗包围盒</div>
+        <div><i class="room"></i>房间轮廓</div>
+        <div><i class="wall"></i>墙体</div>
+        <div><i class="hole"></i>门窗洞口</div>
+        <div><i class="roi"></i>128³ 模拟区域</div>
+        <div><i class="ignition"></i>点火体积</div>
+        <div><i class="flame"></i>高温火焰体素</div>
+        <div><i class="smoke"></i>低温烟雾体素</div>
+      </section>
+
+      <section class="metrics" id="metrics"></section>
+      <p class="help">左键旋转 · 右键或 Shift+左键平移 · 滚轮缩放</p>
+    </aside>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

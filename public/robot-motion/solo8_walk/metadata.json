@@ -1,0 +1,59 @@
+{
+  "schema": "go2-motion-playback-v1",
+  "clipId": "solo8_walk",
+  "displayName": "Go2 Solo8 Walk",
+  "fps": 60.0,
+  "frameCount": 120,
+  "loopMode": "loop",
+  "frameLayout": [
+    "root_x",
+    "root_y",
+    "root_z",
+    "quat_x",
+    "quat_y",
+    "quat_z",
+    "quat_w",
+    "FL_hip_joint",
+    "FL_thigh_joint",
+    "FL_calf_joint",
+    "FR_hip_joint",
+    "FR_thigh_joint",
+    "FR_calf_joint",
+    "RL_hip_joint",
+    "RL_thigh_joint",
+    "RL_calf_joint",
+    "RR_hip_joint",
+    "RR_thigh_joint",
+    "RR_calf_joint"
+  ],
+  "componentType": "float32-little-endian",
+  "componentsPerFrame": 19,
+  "frameBytes": 76,
+  "coordinateSystem": "source-z-up-x-forward-y-left",
+  "jointOrder": [
+    "FL_hip_joint",
+    "FL_thigh_joint",
+    "FL_calf_joint",
+    "FR_hip_joint",
+    "FR_thigh_joint",
+    "FR_calf_joint",
+    "RL_hip_joint",
+    "RL_thigh_joint",
+    "RL_calf_joint",
+    "RR_hip_joint",
+    "RR_thigh_joint",
+    "RR_calf_joint"
+  ],
+  "cycleDeltaPosition": [
+    1.563206434249878,
+    -0.0037917885929346085,
+    -0.09244352579116821
+  ],
+  "source": {
+    "dataset": "MIMUW-Robotics/kine2go",
+    "clip": "solo8_walk",
+    "subset": "cassi / Solo8",
+    "license": "BSD-3-Clause",
+    "url": "https://huggingface.co/datasets/MIMUW-Robotics/kine2go/tree/main/data/solo8_walk"
+  }
+}

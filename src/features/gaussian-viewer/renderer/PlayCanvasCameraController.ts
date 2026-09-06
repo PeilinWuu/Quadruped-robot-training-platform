@@ -109,6 +109,9 @@ export class PlayCanvasCameraController {
     this.applyPose()
   }
 
+  /** Re-apply the preserved orbit pose after a temporary sensor-camera takeover. */
+  restorePose(): void { this.applyPose() }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true

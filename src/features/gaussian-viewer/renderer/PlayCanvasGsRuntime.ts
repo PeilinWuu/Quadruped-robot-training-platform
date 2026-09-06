@@ -5,6 +5,7 @@ import {
   Entity,
   FILLMODE_NONE,
   GSplatResourceBase,
+  Picker,
   Quat,
   RESOLUTION_FIXED,
   Vec3,
@@ -31,6 +32,9 @@ import type {
 import type { Go2VisualMode } from '../robot/go2VisualManifest'
 import { EnvironmentOverlayRuntime } from '../environment/EnvironmentOverlayRuntime'
 import type { EnvironmentOverlayStatus } from '../environment/environmentTypes'
+import { FireVolumeRuntime } from '../fire/FireVolumeRuntime'
+import { robotMotionPlaybackService } from '../../../services/robot-motion-playback/robotMotionPlaybackService'
+import { fitGroundPlane, saveGroundPlane, loadGroundPlane, type GroundPlane } from '../../../services/robot-motion-playback/groundPlaneService'
 
 const STATUS_SAMPLE_INTERVAL_MS = 750
 const DEFAULT_TARGET = new Vec3(0, 0, 0)
@@ -99,7 +103,16 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private gsplatSystem: GSplatComponentSystem | null = null
   private robotOverlay: RobotOverlayRuntime | null = null
   private followRobot = false
+  private robotFirstPerson = false
+  private freeCameraFov = 45
   private environmentOverlay: EnvironmentOverlayRuntime | null = null
+  private fireVolume: FireVolumeRuntime | null = null
+  private picker: Picker | null = null
+  private groundCalibrationActive = false
+  private groundCalibrationKey = 'office_01'
+  private groundCalibrationPoints: Array<[number, number, number]> = []
+  private groundPlane: GroundPlane | null = null
+  private removeMotionPoseListener: (() => void) | null = null
   private objectUrl: string | null = null
   private pendingParse: Promise<SceneLoadResult> | null = null
   private cancelPendingParse: (() => void) | null = null
@@ -170,7 +183,17 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       this.cameraController.reset(this.initialTarget, this.initialDistance)
 
       this.robotOverlay = new RobotOverlayRuntime(app)
+      this.picker = new Picker(app, 1, 1, true)
       this.environmentOverlay = new EnvironmentOverlayRuntime(app)
+      this.fireVolume = new FireVolumeRuntime(app, camera)
+      this.removeMotionPoseListener = robotMotionPlaybackService.onPose((pose) => {
+        if (this.disposed) return
+        this.robotOverlay?.updatePose(pose, true)
+        this.robotOverlay?.setVisible(true)
+        this.updateControlsEnabled()
+        this.requestRender()
+      })
+      this.canvas.addEventListener('pointerdown', this.handleGroundPointer, { capture: true })
 
       canvas.addEventListener('webglcontextlost', this.handleContextLost)
       canvas.addEventListener('webglcontextrestored', this.handleContextRestored)
@@ -178,6 +201,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       app.on('update', this.handleUpdate)
       const gsplatSystem = app.systems.gsplat
       if (!gsplatSystem) throw new Error('GSPLAT_SYSTEM_UNAVAILABLE')
+      app.scene.gsplat.enableIds = true
       this.gsplatSystem = gsplatSystem
       gsplatSystem.on('frame:request', this.handleFrameRequest)
       app.start()
@@ -300,6 +324,25 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   setRobotVisualMode(mode: Go2VisualMode): void { this.robotOverlay?.setVisualMode(mode); this.requestRender() }
   reloadRobotVisuals(): void { this.robotOverlay?.reloadVisuals(); this.requestRender() }
+  setRobotFirstPerson(enabled: boolean): boolean {
+    const camera = this.cameraEntity?.camera
+    if (!camera || !this.robotOverlay) return false
+    if (enabled && !this.robotOverlay.getRobotCameraPose()) return false
+    if (enabled === this.robotFirstPerson) return true
+    this.robotFirstPerson = enabled
+    if (enabled) {
+      this.freeCameraFov = camera.fov
+      camera.fov = 78
+      this.applyRobotCameraPose()
+    } else {
+      camera.fov = this.freeCameraFov
+      this.cameraController?.restorePose()
+    }
+    this.updateControlsEnabled()
+    this.requestRender()
+    return true
+  }
+
   setEnvironmentVisible(visible: boolean): void { this.environmentOverlay?.setVisible(visible); this.updateControlsEnabled(); this.requestRender() }
   setEnvironmentGridVisible(visible: boolean): void { this.environmentOverlay?.setGridVisible(visible); this.requestRender() }
   focusEnvironment(): boolean {
@@ -424,8 +467,49 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     }
     const quaternion = normalizeQuaternion(orientation.quaternion)
     this.sceneEntity.setLocalRotation(new Quat(...quaternion))
+    this.robotOverlay?.setSceneOrientation(quaternion)
     this.frameLoadedScene(this.sceneAsset)
     this.requestRender()
+  }
+
+  startGroundCalibration(sceneKey = 'office_01'): void {
+    if (this.disposed || !this.sceneEntity || !this.cameraEntity?.camera) return
+    this.groundCalibrationKey = sceneKey
+    this.groundCalibrationPoints = []
+    this.groundPlane = loadGroundPlane(sceneKey)
+    this.groundCalibrationActive = true
+  }
+
+  cancelGroundCalibration(): void { this.groundCalibrationActive = false; this.groundCalibrationPoints = [] }
+  getGroundCalibration(): { active: boolean; points: number; plane: GroundPlane | null } {
+    return { active: this.groundCalibrationActive, points: this.groundCalibrationPoints.length, plane: this.groundPlane }
+  }
+
+  private handleGroundPointer = (event: PointerEvent): void => {
+    if (!this.groundCalibrationActive || !this.picker || !this.cameraEntity?.camera || !this.sceneEntity || !this.app) return
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = this.canvas.getBoundingClientRect()
+    const x = event.clientX - rect.left; const y = event.clientY - rect.top
+    if (x < 0 || y < 0 || x >= rect.width || y >= rect.height) return
+    const layer = this.app.scene.layers.getLayerByName('World')
+    const layers = layer ? [layer] : this.app.scene.layers.layerList
+    if (!layers.length) return
+    this.picker.resize(Math.max(1, Math.floor(rect.width)), Math.max(1, Math.floor(rect.height)))
+    this.picker.prepare(this.cameraEntity.camera, this.app.scene, layers)
+    void this.picker.getWorldPointAsync(x, y).then((point) => {
+      if (!point || !this.groundCalibrationActive) {
+        console.warn('[GroundCalibration] no GS world point at', x, y)
+        return
+      }
+      console.info('[GroundCalibration] picked', point.x, point.y, point.z)
+      this.groundCalibrationPoints.push([point.x, point.y, point.z])
+      if (this.groundCalibrationPoints.length >= 3) {
+        const plane = fitGroundPlane(this.groundCalibrationPoints, this.groundCalibrationKey)
+        if (plane) { this.groundPlane = plane; saveGroundPlane(plane); this.groundCalibrationActive = false; void robotMotionPlaybackService.load() }
+      }
+      this.requestRender()
+    })
   }
 
   dispose(): void {
@@ -447,14 +531,20 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored)
+    this.canvas.removeEventListener('pointerdown', this.handleGroundPointer, { capture: true })
     app?.off('frameend', this.handleFrameEnd)
     app?.off('update', this.handleUpdate)
     this.gsplatSystem?.off('frame:request', this.handleFrameRequest)
     this.gsplatSystem = null
     this.robotOverlay?.dispose()
+    this.picker = null
     this.robotOverlay = null
     this.environmentOverlay?.dispose()
     this.environmentOverlay = null
+    this.fireVolume?.dispose()
+    this.fireVolume = null
+    this.removeMotionPoseListener?.()
+    this.removeMotionPoseListener = null
     this.cameraEntity?.destroy()
     this.cameraEntity = null
     this.app = null
@@ -575,6 +665,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
             source.orientation?.quaternion ?? [0, 0, 0, 1],
           )
           entity.setLocalRotation(new Quat(...orientation))
+          this.robotOverlay?.setSceneOrientation(orientation)
           entity.addComponent('gsplat', { asset })
           app.root.addChild(entity)
           this.sceneEntity = entity
@@ -693,8 +784,17 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
         || this.environmentOverlay?.getStatus().visible === true)
       && !this.status.contextLost
       && !this.disposed
-    this.cameraController?.setEnabled(enabled)
-    this.status = { ...this.status, controlsEnabled: enabled }
+    this.cameraController?.setEnabled(enabled && !this.robotFirstPerson)
+    this.status = { ...this.status, controlsEnabled: enabled && !this.robotFirstPerson }
+  }
+
+  private applyRobotCameraPose(): void {
+    if (!this.robotFirstPerson || !this.cameraEntity || !this.robotOverlay) return
+    const pose = this.robotOverlay.getRobotCameraPose()
+    if (!pose) return
+    this.cameraEntity.setPosition(...pose.position)
+    this.cameraEntity.setRotation(new Quat(...pose.rotation))
+    this.requestRender()
   }
 
   private readonly requestRender = (): void => {
@@ -718,9 +818,12 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     }
   }
 
-  private readonly handleUpdate = (): void => {
+  private readonly handleUpdate = (deltaSeconds: number): void => {
     if (!this.activeRendering || this.status.contextLost) return
     this.robotOverlay?.update()
+    robotMotionPlaybackService.update(deltaSeconds)
+    this.applyRobotCameraPose()
+    this.fireVolume?.update(deltaSeconds)
   }
 
   private readonly handleContextLost = (): void => {
@@ -735,6 +838,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     }
     this.robotOverlay?.setContextLost(true)
     this.environmentOverlay?.setContextLost(true)
+    this.fireVolume?.setContextLost(true)
     this.updateControlsEnabled()
     this.emitStatus()
   }
@@ -750,6 +854,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     }
     this.robotOverlay?.setContextLost(false)
     this.environmentOverlay?.setContextLost(false)
+    this.fireVolume?.setContextLost(false)
     this.app.autoRender = this.activeRendering
     this.updateControlsEnabled()
     this.requestRender()

@@ -37,6 +37,7 @@ export interface SimulationUiState {
   visualPhase: 'idle' | 'loading' | 'ready' | 'fallback'
   visualError: string | null
   followRobot: boolean
+  robotFirstPerson: boolean
 }
 
 export interface SimulationActionResult { ok: boolean; error?: string }
@@ -58,6 +59,7 @@ interface AppState {
   setTelemetryRate: (rateHz: number) => Promise<SimulationActionResult>
   clearLatestCollisionEvent: () => void
   setFollowRobot: (enabled: boolean) => void
+  setRobotFirstPerson: (enabled: boolean) => void
 }
 
 const INITIAL_SIMULATION: SimulationUiState = {
@@ -67,7 +69,7 @@ const INITIAL_SIMULATION: SimulationUiState = {
   simulationState: 'unloaded', model: null, speed: 1, lastError: null,
   latestPose: null, latestTelemetry: null, latestMotionCommand: null, latestCollisionEvent: null, busy: false,
   visualMode: 'official-mesh', visualPhase: 'idle', visualError: null,
-  followRobot: true,
+  followRobot: false, robotFirstPerson: false,
 }
 
 let eventCleanup: (() => void) | null = null
@@ -115,7 +117,7 @@ export const useAppStore = create<AppState>((set, get) => {
   }
 
   return {
-    scenes: [], activeSceneId: '', status: 'running', speed: 1, activeSensor: 'all', elapsed: 765,
+    scenes: [], activeSceneId: '', status: 'running', speed: 1, activeSensor: 'rgb', elapsed: 765,
     robot: null, sensor: null, task: null, metrics: [], simulation: INITIAL_SIMULATION,
     initialize: async () => {
       const [sceneResult, robotResult, sensorResult, taskResult, metricsResult] = await Promise.all([
@@ -186,6 +188,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     clearLatestCollisionEvent: () => set((state) => ({ simulation: { ...state.simulation, latestCollisionEvent: null } })),
     setFollowRobot: (enabled) => set((state) => ({ simulation: { ...state.simulation, followRobot: enabled } })),
+    setRobotFirstPerson: (enabled) => set((state) => ({ simulation: { ...state.simulation, robotFirstPerson: enabled } })),
     shutdownSimulation: async () => {
       clearSimulationBridge()
       try {
