@@ -17,7 +17,7 @@
 | MuJoCo/Eigen/OSQP/QDLDL 缓存 | 否 | `setup:*` 脚本下载固定版本并验证 |
 | 本地账户、数据库、截图、安装包 | 否 | 各自在本机生成 |
 
-仓库根目录可能存在独立 `FieryGS/` 求解器 checkout，但它不是本项目已声明的 submodule，也不是快速启动依赖。当前没有提供可公开下载的场景数据包地址。
+仓库根目录可能存在独立 `FieryGS/` 求解器 checkout，但它不是本项目已声明的 submodule，也不是快速启动依赖。完整展示资产的网盘入口见 [共同开发者指南](COLLABORATOR_QUICKSTART.md#下载展示资产)。
 
 ## 外部火场目录
 
