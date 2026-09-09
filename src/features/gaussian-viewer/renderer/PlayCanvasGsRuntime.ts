@@ -1,3 +1,5 @@
+import { GaussianDepthCapture } from '../depth/GaussianDepthCapture'
+import { gsDepthPreview } from '../depth/gsDepthPreview'
 import {
   Application,
   Asset,
@@ -6,6 +8,7 @@ import {
   FILLMODE_NONE,
   GSplatResourceBase,
   Picker,
+  Layer,
   Quat,
   RESOLUTION_FIXED,
   Vec3,
@@ -32,6 +35,8 @@ import type {
 import type { Go2VisualMode } from '../robot/go2VisualManifest'
 import { EnvironmentOverlayRuntime } from '../environment/EnvironmentOverlayRuntime'
 import type { EnvironmentOverlayStatus } from '../environment/environmentTypes'
+import { firePlaybackService } from '../../../services/fire-playback/firePlaybackService'
+import { ROOM_FIRE_VIEWS } from '../../../services/fire-playback/roomFireScenario'
 import { FireVolumeRuntime } from '../fire/FireVolumeRuntime'
 import { robotMotionPlaybackService } from '../../../services/robot-motion-playback/robotMotionPlaybackService'
 import { fitGroundPlane, saveGroundPlane, loadGroundPlane, type GroundPlane } from '../../../services/robot-motion-playback/groundPlaneService'
@@ -106,7 +111,10 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private robotFirstPerson = false
   private freeCameraFov = 45
   private environmentOverlay: EnvironmentOverlayRuntime | null = null
+  private removeFireFocusListener: (() => void) | null = null
   private fireVolume: FireVolumeRuntime | null = null
+  private depthCapture: GaussianDepthCapture | null = null
+  private gsLayer: Layer | null = null
   private picker: Picker | null = null
   private groundCalibrationActive = false
   private groundCalibrationKey = 'office_01'
@@ -174,6 +182,10 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       })
       app.root.addChild(camera)
       this.cameraEntity = camera
+      this.gsLayer = new Layer({ name: 'Gaussian scene only' })
+      app.scene.layers.pushTransparent(this.gsLayer)
+      camera.camera!.layers = [...camera.camera!.layers, this.gsLayer.id]
+      this.depthCapture = new GaussianDepthCapture(app, camera, this.gsLayer)
 
       this.cameraController = new PlayCanvasCameraController(
         canvas,
@@ -186,6 +198,14 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       this.picker = new Picker(app, 1, 1, true)
       this.environmentOverlay = new EnvironmentOverlayRuntime(app)
       this.fireVolume = new FireVolumeRuntime(app, camera)
+      this.removeFireFocusListener = firePlaybackService.onFocus((metadata) => {
+        const lo = metadata.grid.worldLower; const hi = metadata.grid.worldUpper
+        const center = new Vec3((lo[0]+hi[0])*.5, (lo[2]+hi[2])*.5, -(lo[1]+hi[1])*.5)
+        this.setRobotFirstPerson(false)
+        const view = ROOM_FIRE_VIEWS[metadata.scenarioId]
+        if (view) this.cameraController?.framePose(new Vec3(...view.position), new Vec3(...view.target))
+        else this.cameraController?.reset(center, Math.max(3.2, (hi[0]-lo[0])*1.2, (hi[2]-lo[2])*1.2))
+      })
       this.removeMotionPoseListener = robotMotionPlaybackService.onPose((pose) => {
         if (this.disposed) return
         this.robotOverlay?.updatePose(pose, true)
@@ -455,6 +475,13 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.emitStatus()
   }
 
+  setDepthCaptureEnabled(enabled: boolean): boolean {
+    gsDepthPreview.enabled = enabled
+    if (!enabled) this.depthCapture?.clear()
+    return !!this.depthCapture
+  }
+  getLatestDepthFrame() { return this.depthCapture?.frame ?? null }
+
   resetCamera(): void {
     if (this.disposed || !this.status.sceneLoaded) return
     this.cameraController?.reset(this.initialTarget, this.initialDistance)
@@ -522,6 +549,9 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.pendingParse = null
 
     const app = this.app
+    this.depthCapture?.dispose(); this.depthCapture = null
+    if (this.gsLayer) app?.scene.layers.removeTransparent(this.gsLayer)
+    this.gsLayer = null
     this.cameraController?.dispose()
     this.cameraController = null
     this.releaseLoadedScene()
@@ -541,6 +571,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.robotOverlay = null
     this.environmentOverlay?.dispose()
     this.environmentOverlay = null
+    this.removeFireFocusListener?.(); this.removeFireFocusListener = null
     this.fireVolume?.dispose()
     this.fireVolume = null
     this.removeMotionPoseListener?.()
@@ -666,7 +697,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
           )
           entity.setLocalRotation(new Quat(...orientation))
           this.robotOverlay?.setSceneOrientation(orientation)
-          entity.addComponent('gsplat', { asset })
+          entity.addComponent('gsplat', { asset, layers: [this.gsLayer!.id] })
           app.root.addChild(entity)
           this.sceneEntity = entity
           this.sceneAsset = asset
@@ -749,6 +780,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   private releaseLoadedScene(): void {
+    this.depthCapture?.clear()
     this.sceneEntity?.destroy()
     this.sceneEntity = null
     if (this.sceneAsset) this.releaseAsset(this.sceneAsset)
@@ -808,6 +840,11 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   private readonly handleFrameEnd = (): void => {
     if (!this.app || this.disposed) return
+    if (this.activeRendering && this.status.sceneLoaded && !this.status.contextLost) {
+      gsDepthPreview.cameraMode = this.robotFirstPerson ? '机器人第一视角' : '当前自由视角'
+      this.depthCapture?.update()
+      this.status.depthAvailable = !!this.depthCapture?.frame
+    }
     const now = performance.now()
     if (now - this.lastStatusSampleAt < STATUS_SAMPLE_INTERVAL_MS) return
     this.lastStatusSampleAt = now
@@ -827,6 +864,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   private readonly handleContextLost = (): void => {
+    this.depthCapture?.clear()
     if (this.disposed) return
     this.status = {
       ...this.status,

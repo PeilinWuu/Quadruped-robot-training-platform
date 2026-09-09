@@ -3,7 +3,7 @@ import { Box, Camera, Crosshair, Expand, Eye, Flame, Keyboard, Pause, Play, Refr
 import { Dropdown, Segmented, Tooltip } from 'antd'
 import { useAppStore } from '../store/useAppStore'
 import { firePlaybackService } from '../services/fire-playback/firePlaybackService'
-import type { FirePlaybackState } from '../services/fire-playback/types'
+import type { FirePlaybackState, FireQuality, FireVersion } from '../services/fire-playback/types'
 import { robotMotionPlaybackService } from '../services/robot-motion-playback/robotMotionPlaybackService'
 import type { RobotMotionState } from '../services/robot-motion-playback/types'
 
@@ -14,9 +14,19 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
   const robotFirstPerson = useAppStore((state) => state.simulation.robotFirstPerson)
   const setRobotFirstPerson = useAppStore((state) => state.setRobotFirstPerson)
   const [fire, setFire] = useState<FirePlaybackState>(() => firePlaybackService.getState())
+  const [fireVersion, setFireVersion] = useState<FireVersion>('playback-v1')
+  const [fireQuality, setFireQuality] = useState<FireQuality>('medium')
+  const [atmosphere, setAtmosphere] = useState(firePlaybackService.atmosphereEnabled)
+  const [roomBusy, setRoomBusy] = useState(false)
+  const [depthStatus, setDepthStatus] = useState(firePlaybackService.depthStatus)
+  const [fireFps, setFireFps] = useState(0)
   const [motion, setMotion] = useState<RobotMotionState>(() => robotMotionPlaybackService.getState())
 
   useEffect(() => firePlaybackService.subscribe(setFire), [])
+  useEffect(() => {
+    const timer = window.setInterval(() => { setDepthStatus(firePlaybackService.depthStatus); setFireQuality(firePlaybackService.quality); setFireFps(firePlaybackService.fps) }, 1000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => {
     let activated = false
     const unsubscribe = robotMotionPlaybackService.subscribe((state) => {
@@ -31,7 +41,15 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
     return () => { unsubscribe(); robotMotionPlaybackService.setKeyboardEnabled(false) }
   }, [])
 
-  const loadFire = () => void firePlaybackService.load('/fire-playback/table_high/')
+  const toggleRoomFire = async () => {
+    setRoomBusy(true)
+    try {
+      if (fire.sceneMode === 'room') await firePlaybackService.setSceneMode('single')
+      else { await firePlaybackService.setSceneMode('room'); setFireVersion('playback-v1'); firePlaybackService.reset(); firePlaybackService.play() }
+    } finally { setRoomBusy(false) }
+  }
+  const lookAtFire = (id: string) => { setRobotFirstPerson(false); firePlaybackService.focusFire(id) }
+  const loadFire = () => void firePlaybackService.selectVersion(fireVersion)
   const loadMotion = () => void robotMotionPlaybackService.load().then(() => {
     robotMotionPlaybackService.setKeyboardEnabled(true); robotMotionPlaybackService.play()
   })
@@ -65,13 +83,31 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
         <small>{motion.displayName ?? motion.error ?? 'Go2 程序化对角步态'} · {motion.frameCount ? `${motion.frameIndex + 1}/${motion.frameCount}` : '—'} · {motion.keyboardEnabled ? 'WASD/QE' : '键盘关闭'}</small>
       </div>
 
-      <div className="fire-playback-controls" aria-label="FieryGS fire playback controls">
-        <span className={`fire-playback-status fire-playback-status--${fire.phase}`}><Flame size={14}/>Table HIGH · {fire.stage ?? fire.phase}</span>
+      <div className="fire-playback-controls" role="toolbar" aria-label="火焰播放">
+        <strong className="fire-playback-title"><Flame size={15}/>火焰播放</strong>
+        <button type="button" disabled={roomBusy} onClick={() => void toggleRoomFire()}>{roomBusy ? '正在加载多点火场…' : fire.sceneMode === 'room' ? '切回单桌火焰' : '启动多点火场'}</button>
+        <select disabled={roomBusy || fire.sceneMode === 'room'} aria-label="火焰播放版本" value={fire.version ?? fireVersion} onChange={(event) => {
+          const version = event.target.value as FireVersion; setFireVersion(version); void firePlaybackService.selectVersion(version)
+        }}><option value="playback-v1">V1</option><option value="playback-v2">V2 原型</option></select>
+        <select aria-label="火焰质量" value={fireQuality} onChange={(event) => {
+          const quality = event.target.value as FireQuality; setFireQuality(quality); firePlaybackService.setQuality(quality)
+        }}><option value="high">High 128</option><option value="medium">Medium 96</option><option value="low">Low 64</option><option value="off">Off</option></select>
+        <label title="只降低火焰质量"><input type="checkbox" defaultChecked onChange={(event) => { firePlaybackService.autoQuality = event.target.checked }}/>自动</label>
+        <label title="根据场景深度截断火焰，取消可对照原效果"><input type="checkbox" defaultChecked={firePlaybackService.depthOcclusion} onChange={(event) => { firePlaybackService.depthOcclusion = event.target.checked }}/>遮挡</label>
+        {depthStatus === 'unavailable' && <small role="alert">场景遮挡加载失败，当前未遮挡</small>}
+        <span className={`fire-playback-status fire-playback-status--${fire.phase}`}>{fire.sceneMode === 'room' ? '桌子＋沙发＋窗帘' : '桌面火焰'} · {fire.stage ?? fire.phase}</span>
         {fire.phase === 'idle' || fire.phase === 'error'
           ? <button type="button" onClick={loadFire}>{fire.phase === 'error' ? '重试火灾资产' : '加载火灾'}</button>
-          : <button type="button" disabled={fire.phase === 'loading'} onClick={() => fire.playing ? firePlaybackService.pause() : firePlaybackService.play()}>{fire.playing ? <Pause size={14}/> : <Play size={14}/>}</button>}
-        <button type="button" disabled={fire.frameCount === 0} onClick={() => firePlaybackService.reset()}><RefreshCw size={13}/></button>
-        <small>{fire.sourceFrame === null ? (fire.error ?? '未加载') : `${fire.frameIndex + 1}/${fire.frameCount} · source ${fire.sourceFrame}`}</small>
+          : <button type="button" aria-label={fire.playing ? '暂停火焰' : '播放火焰'} disabled={fire.phase === 'loading'} onClick={() => fire.playing ? firePlaybackService.pause() : firePlaybackService.play()}>{fire.playing ? '暂停火焰' : '播放火焰'}</button>}
+        <button type="button" disabled={fire.frameCount === 0} onClick={() => firePlaybackService.reset()}>重置火焰</button>
+        {fire.sceneMode === 'room' && <label><input type="checkbox" checked={atmosphere} onChange={(event) => { setAtmosphere(event.target.checked); firePlaybackService.atmosphereEnabled = event.target.checked }}/>火场氛围</label>}
+        {fire.sceneMode === 'room' && <span className="fire-scene-views">
+          <button type="button" onClick={() => lookAtFire('table_high')}>看桌子</button>
+          <button type="button" onClick={() => lookAtFire('sofa_high')}>看沙发</button>
+          <button type="button" onClick={() => lookAtFire('curtain_high')}>看窗帘</button>
+        </span>}
+        {fire.additionalFires?.some((item) => item.error) && <small role="alert">部分火点加载失败，请切回单桌后重试：{fire.additionalFires.filter((item) => item.error).map((item) => `${item.id}: ${item.error}`).join('；')}</small>}
+        <small title={fire.fallbackReason ?? undefined}>{fire.fallbackReason ? '已回退 V1 · ' : ''}{fireFps > 0 ? `${fireFps.toFixed(0)} FPS · ` : ''}{fire.sourceFrame === null ? (fire.error ?? '未加载') : `${fire.frameIndex + 1}/${fire.frameCount} · source ${fire.sourceFrame}`}</small>
       </div>
 
       <Dropdown menu={{ items: [{ key: 'playback', label: 'Go2 运动播片 / FieryGS 播片' }, { key: 'stream', label: 'Unitree 高层接口 / 视频流预留' }] }}>

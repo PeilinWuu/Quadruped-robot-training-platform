@@ -112,6 +112,17 @@ export class PlayCanvasCameraController {
   /** Re-apply the preserved orbit pose after a temporary sensor-camera takeover. */
   restorePose(): void { this.applyPose() }
 
+  /** Explicit focus command; keep orbit/pan/zoom anchored to the chosen view. */
+  framePose(position: Vec3, target: Vec3): void {
+    if (this.disposed) return
+    this.target.copy(target)
+    this.distance = Math.min(Math.max(position.distance(target), MIN_DISTANCE), MAX_DISTANCE)
+    this.camera.setPosition(position)
+    this.camera.lookAt(target, WORLD_UP)
+    this.orbitOrientation.copy(this.camera.getRotation())
+    this.applyPose()
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true

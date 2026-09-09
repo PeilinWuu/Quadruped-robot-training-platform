@@ -1,4 +1,8 @@
 export const FIRE_PLAYBACK_SCHEMA = 'fierygs-fire-playback-v1' as const
+export const FIRE_PLAYBACK_V2_SCHEMA = 'fierygs-fire-playback-v2' as const
+export type FireQuality = 'high' | 'medium' | 'low' | 'off'
+export type FireSceneMode = 'single' | 'room'
+export type FireVersion = 'playback-v1' | 'playback-v2'
 
 export type FirePlaybackLoopMode = 'loop' | 'ping-pong'
 export type FirePlaybackPhase = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'error'
@@ -21,7 +25,7 @@ export interface FirePlaybackChunkRecord {
 }
 
 export interface FirePlaybackMetadata {
-  schema: typeof FIRE_PLAYBACK_SCHEMA
+  schema: typeof FIRE_PLAYBACK_SCHEMA | typeof FIRE_PLAYBACK_V2_SCHEMA
   scenarioId: string
   sourceMode: 'native_reignite'
   rendererProfile: {
@@ -47,12 +51,16 @@ export interface FirePlaybackMetadata {
     sourceToViewer: number[]
   }
   encoding: {
-    layout: 'source-c-order-xyz-rg'
-    channels: ['fuel', 'temperature']
+    layout: 'source-c-order-xyz-rg' | 'source-c-order-xyz-rgba-rgba'
+    channels: string[]
     componentType: 'uint8-unorm'
-    bytesPerVoxel: 2
+    bytesPerVoxel: 2 | 8
     frameBytes: number
     quantization: { minimum: 0; maximum: 1 }
+    emissionScale?: [number, number, number]
+    emissionZero?: 128
+    colorSpace?: 'native-cat02-linear-srgb-signed'
+    strengthBaked?: true
   }
   frames: FirePlaybackFrameRecord[]
   chunks: FirePlaybackChunkRecord[]
@@ -80,6 +88,10 @@ export interface FirePlaybackSample {
 }
 
 export interface FirePlaybackState {
+  sceneMode?: FireSceneMode
+  additionalFires?: Array<{ id: string; phase: FirePlaybackPhase; error: string | null }>
+  version?: FireVersion
+  fallbackReason?: string | null
   phase: FirePlaybackPhase
   scenarioId: string | null
   frameIndex: number
@@ -89,4 +101,3 @@ export interface FirePlaybackState {
   playing: boolean
   error: string | null
 }
-

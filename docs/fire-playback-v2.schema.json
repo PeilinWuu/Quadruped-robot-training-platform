@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FieryGS playback-v2 prototype",
+  "type": "object",
+  "required": [
+    "schema",
+    "scenarioId",
+    "sourceMode",
+    "rendererProfile",
+    "playback",
+    "grid",
+    "encoding",
+    "frames",
+    "chunks",
+    "source"
+  ],
+  "properties": {
+    "schema": {
+      "const": "fierygs-fire-playback-v2"
+    },
+    "scenarioId": {
+      "type": "string"
+    },
+    "sourceMode": {
+      "const": "native_reignite"
+    },
+    "rendererProfile": {
+      "type": "object",
+      "required": [
+        "xyz2rgbClipOutput",
+        "hdrAces",
+        "strength",
+        "smokeStrength"
+      ],
+      "properties": {
+        "xyz2rgbClipOutput": {
+          "const": true
+        },
+        "hdrAces": {
+          "const": false
+        },
+        "strength": {
+          "const": 0.005
+        },
+        "smokeStrength": {
+          "const": 0.2
+        }
+      }
+    },
+    "playback": {
+      "type": "object",
+      "required": [
+        "fps",
+        "frameCount",
+        "loopMode",
+        "stages"
+      ],
+      "properties": {
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "frameCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "loopMode": {
+          "enum": [
+            "ping-pong",
+            "loop"
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "established",
+              "spread",
+              "late"
+            ]
+          }
+        }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "required": [
+        "dimensions",
+        "sourceDimensions",
+        "cropOrigin",
+        "voxelSize",
+        "sourceLower",
+        "worldLower",
+        "worldUpper",
+        "sourceToViewer"
+      ],
+      "properties": {
+        "sourceLower": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "worldLower": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "worldUpper": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "cropOrigin": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "dimensions": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "sourceDimensions": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "voxelSize": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sourceToViewer": {
+          "const": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      }
+    },
+    "encoding": {
+      "type": "object",
+      "required": [
+        "layout",
+        "channels",
+        "componentType",
+        "bytesPerVoxel",
+        "frameBytes",
+        "quantization",
+        "emissionScale",
+        "emissionZero",
+        "colorSpace",
+        "strengthBaked"
+      ],
+      "properties": {
+        "layout": {
+          "const": "source-c-order-xyz-rgba-rgba"
+        },
+        "channels": {
+          "const": [
+            "emissionR",
+            "emissionG",
+            "emissionB",
+            "extinction",
+            "smokeR",
+            "smokeG",
+            "smokeB",
+            "smokeDensity"
+          ]
+        },
+        "componentType": {
+          "const": "uint8-unorm"
+        },
+        "bytesPerVoxel": {
+          "const": 8
+        },
+        "frameBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "quantization": {
+          "const": {
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "emissionScale": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "emissionZero": {
+          "const": 128
+        },
+        "colorSpace": {
+          "const": "native-cat02-linear-srgb-signed"
+        },
+        "strengthBaked": {
+          "const": true
+        }
+      }
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "playbackIndex",
+          "sourceFrame",
+          "stage",
+          "chunk",
+          "offset"
+        ],
+        "properties": {
+          "playbackIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sourceFrame": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "chunk": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stage": {
+            "enum": [
+              "established",
+              "spread",
+              "late"
+            ]
+          }
+        }
+      }
+    },
+    "chunks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "file",
+          "firstPlaybackIndex",
+          "frameCount",
+          "byteLength",
+          "sha256"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "file": {
+            "type": "string",
+            "pattern": "^frames_[0-9]{3}\\.bin$"
+          },
+          "firstPlaybackIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frameCount": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 67108864
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object"
+    }
+  },
+  "$comment": "Runtime additionally validates frameBytes = product(dimensions)*8, index/chunk bounds and SHA256. emission=(byte-128)*emissionScale; signed pre-gamma coefficients, legacy gamma/clipping AFTER integration. sourceFrame mapping is authoritative when frameStep=0."
+}

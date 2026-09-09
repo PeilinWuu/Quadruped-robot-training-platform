@@ -20,17 +20,17 @@ const PRODUCTION_GROUND_COLLISION_ASSETS = [
 const GO2_LOCK_PATH = 'src/features/gaussian-viewer/robot/go2Visuals.lock.json'
 const FIRE_PLAYBACK_ROOT = 'D:/interiorgs_data/office_01/fire_playback'
 
-function developmentFirePlaybackAssets(): Plugin {
+function developmentFirePlaybackAssets(prefix = '/fire-playback', root = FIRE_PLAYBACK_ROOT): Plugin {
   return {
-    name: 'development-fire-playback-assets',
+    name: `development-fire-playback-assets-${prefix}`,
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/fire-playback', (request, response, next) => {
+      server.middlewares.use(prefix, (request, response, next) => {
         const pathname = decodeURIComponent((request.url ?? '/').split('?')[0]).replace(/^\/+/, '')
-        if (!/^[a-z0-9_-]+\/(?:metadata\.json|frames_[0-9]{3}\.bin)$/.test(pathname)) {
+        if (!/^[a-z0-9_-]+\/(?:metadata\.json|frames_[0-9]{3}\.bin|proxy(?:-smooth)?\.bin)$/.test(pathname)) {
           next(); return
         }
-        const path = resolve(FIRE_PLAYBACK_ROOT, pathname)
+        const path = resolve(root, pathname)
         void lstat(path).then((info) => {
           if (!info.isFile() || info.isSymbolicLink()) throw new Error('unsafe fire asset')
           response.statusCode = 200
@@ -97,6 +97,26 @@ function productionPublicAssets(): Plugin {
       if (sogFiles.length > 0) {
         throw new Error('Production build contains forbidden SOG assets')
       }
+      // Tauri builds embed these playback assets so installed apps work offline.
+      if (process.env.TAURI_ENV_PLATFORM) {
+        const scenarios = [
+          ['fire-playback', 'table_high'],
+          ['fire-playback-room', 'sofa_high'],
+          ['fire-playback-room', 'curtain_high'],
+          ['fire-playback-v2', 'table_high_test'],
+        ] as const
+        for (const [route, scenario] of scenarios) {
+          const input = resolve('D:/interiorgs_data/office_01', route.replaceAll('-', '_'), scenario)
+          const target = resolve(output, route, scenario)
+          await mkdir(target, { recursive: true })
+          for (const name of await readdir(input)) {
+            if (!/^(metadata\.json|frames_[0-9]{3}\.bin|proxy(?:-smooth)?\.bin)$/.test(name)) continue
+            const info = await lstat(resolve(input, name))
+            if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe fire production asset')
+            await copyFile(resolve(input, name), resolve(target, name))
+          }
+        }
+      }
     },
   }
 }
@@ -114,7 +134,7 @@ async function findSogFiles(directory: string): Promise<string[]> {
 // Development serves generated Go2 GLBs and the local SOG fixture. Production copies only locked GLBs.
 export default defineConfig(({ command }) => ({
   publicDir: command === 'serve' ? 'public' : false,
-  plugins: [react(), developmentFirePlaybackAssets(), productionPublicAssets()],
+  plugins: [react(), developmentFirePlaybackAssets(), developmentFirePlaybackAssets('/fire-playback-v2', 'D:/interiorgs_data/office_01/fire_playback_v2'), developmentFirePlaybackAssets('/fire-playback-room', 'D:/interiorgs_data/office_01/fire_playback_room'), productionPublicAssets()],
   server: {
     port: 5173,
     strictPort: true,
