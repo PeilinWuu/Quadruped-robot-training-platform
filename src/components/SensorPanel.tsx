@@ -1,8 +1,50 @@
-import { Radio, ScanLine, ThermometerSun, Waves } from 'lucide-react'
+import { useEffect } from 'react'
+import { ThermometerSun, Waves } from 'lucide-react'
 import { Segmented } from 'antd'
+import { GaussianDepthView } from './GaussianDepthView'
+import { ThermalView } from './ThermalView'
 import { Panel } from './Panel'
+import { gsDepthPreview } from '../features/gaussian-viewer/depth/gsDepthPreview'
+import { thermalPreview } from '../features/gaussian-viewer/thermal/thermalPreview'
 import { useAppStore } from '../store/useAppStore'
 
-const options = [{ label: '多视图', value: 'all' }, { label: 'RGB', value: 'rgb' }, { label: '深度', value: 'depth' }, { label: '热成像', value: 'thermal' }, { label: '激光雷达', value: 'lidar' }]
-const feeds = [{ id: 'rgb', label: 'RGB 相机', icon: Radio }, { id: 'depth', label: '深度相机', icon: Waves }, { id: 'thermal', label: '热成像', icon: ThermometerSun }, { id: 'lidar', label: '激光雷达', icon: ScanLine }]
-export function SensorPanel() { const { activeSensor, setSensor } = useAppStore(); const visible = activeSensor === 'all' ? feeds : feeds.filter((f) => f.id === activeSensor); return <Panel title="传感器视图" extra={<span className="live-dot">● LIVE</span>}><Segmented block size="small" value={activeSensor} onChange={(v) => setSensor(String(v))} options={options} /><div className={`sensor-grid ${visible.length === 1 ? 'single' : ''}`}>{visible.map(({ id, label, icon: Icon }) => <div className={`sensor-feed ${id}`} key={id}><div className="feed-label"><Icon size={12} />{label}<span>30 FPS</span></div><div className="feed-art"><span className="sensor-corridor"/><span className="sensor-flame"/>{id === 'lidar' && <span className="radar-sweep"/>}</div></div>)}</div></Panel> }
+const options = [
+  { label: '多视图', value: 'all' },
+  { label: 'GS 实时深度', value: 'depth' },
+  { label: '仿真热像', value: 'thermal' },
+]
+const feeds = [
+  { id: 'depth', label: 'GS 实时深度', icon: Waves },
+  { id: 'thermal', label: '仿真热像', icon: ThermometerSun },
+]
+
+export function SensorPanel() {
+  const { activeSensor, setSensor } = useAppStore()
+  const sensor = activeSensor === 'depth' || activeSensor === 'thermal' ? activeSensor : 'all'
+  useEffect(() => {
+    gsDepthPreview.enabled = sensor === 'depth' || sensor === 'all'
+    thermalPreview.enabled = sensor === 'thermal' || sensor === 'all'
+    if (!thermalPreview.enabled) thermalPreview.clear()
+    if (!gsDepthPreview.enabled) gsDepthPreview.publish(null)
+    return () => {
+      thermalPreview.enabled = false
+      thermalPreview.clear()
+      gsDepthPreview.enabled = false
+      gsDepthPreview.publish(null)
+    }
+  }, [sensor])
+  const visible = sensor === 'all' ? feeds : feeds.filter((feed) => feed.id === sensor)
+  return <Panel title="传感器视图" extra={<span>展示 / 调试</span>}>
+    <Segmented block size="small" value={sensor} onChange={(value) => setSensor(String(value))} options={options} />
+    <div className="sensor-mode-hint">{sensor === 'all'
+      ? '当前视口相机 · GS 实时深度与仿真热像'
+      : sensor === 'depth' ? '当前视口相机 · GS 实时深度 · 非训练传感器'
+      : '仿真相对热度 · 非标定热像仪'}</div>
+    <div className={`sensor-grid ${visible.length === 1 ? 'single' : ''}`}>
+      {visible.map(({ id, label, icon: Icon }) => <div className={`sensor-feed ${id}`} key={id}>
+        <div className="feed-label"><Icon size={12} />{label}<span>实时 / ≤5 Hz</span></div>
+        {id === 'depth' ? <GaussianDepthView /> : <ThermalView />}
+      </div>)}
+    </div>
+  </Panel>
+}

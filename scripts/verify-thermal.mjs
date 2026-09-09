@@ -1,0 +1,65 @@
+import { homedir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const {chromium}=await import(pathToFileURL(resolve(homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
+const out='tmp/thermal-results';await fs.mkdir(out,{recursive:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--enable-gpu','--use-angle=d3d11','--disable-background-timer-throttling']});
+try {
+ const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[];
+ page.on('pageerror',e=>errors.push(String(e)));
+ await page.route('**/gs/local/v2-qa.sog',route=>route.fulfill({path:'D:/interiorgs_data/office_01/scene_yup.sog',contentType:'application/octet-stream'}));
+ await page.goto('http://localhost:5173/tools/fire-playback-v2/fixture.html');
+ await page.waitForFunction(()=>window.ready,undefined,{timeout:120000});
+ await page.evaluate(async()=>{
+  window.thermal=(await import('/src/features/gaussian-viewer/thermal/thermalPreview.ts')).thermalPreview;
+  const React=(await import('/node_modules/.vite/deps/react.js')).default;
+  const {createRoot}=(await import('/node_modules/.vite/deps/react-dom_client.js')).default;
+  const {SensorPanel}=await import('/src/components/SensorPanel.tsx');
+  window.appStore=(await import('/src/store/useAppStore.ts')).useAppStore;appStore.getState().setSensor('thermal');
+  const style=document.createElement('link');style.rel='stylesheet';style.href='/src/App.css';document.head.append(style);
+  const container=document.createElement('div');container.style='position:absolute;right:10px;top:10px;width:410px;height:380px;background:#101820;z-index:10;border:1px solid #777';document.body.append(container);
+  createRoot(container).render(React.createElement(SensorPanel));
+  robot.pause();await fire.setSceneMode('room');fire.pause();fire.atmosphereEnabled=false;
+  for(const service of [fire,...fire.getCompanions().values()])service.seek(9);
+  runtime.cameraEntity.setPosition(8.609968,2.4,1.200738);runtime.cameraEntity.lookAt(8.609968,3.020080,-1.999262);
+  thermal.enabled=true;
+ });
+ await page.locator('.ant-segmented-item').filter({hasText:'仿真热像'}).click();
+ await page.waitForFunction(()=>thermal.frame&&thermal.tracks===3,undefined,{timeout:30000});
+ const stats=()=>page.evaluate(()=>({sequence:thermal.frame?.sequence,max:Math.max(...thermal.frame.values),hot:thermal.frame.values.filter(v=>v>.2).length,valid:thermal.frame.valid.filter(Boolean).length,renderMs:thermal.frame.renderMs,tracks:thermal.tracks,error:thermal.error}));
+ const curtain=await stats();assert(curtain.hot>10);await page.screenshot({path:out+'/curtain.png'});
+ await page.evaluate(()=>{window.oldSequence=thermal.frame.sequence;fire.play()});
+ await page.waitForFunction(()=>thermal.frame.sequence>window.oldSequence+3);
+ const playing=await stats();
+ const views={};
+ for(const id of ['table_high','sofa_high']) {
+  await page.evaluate(id=>{fire.pause();fire.focusFire(id);window.oldSequence=thermal.frame.sequence},id);
+  await page.waitForFunction(()=>thermal.frame.sequence>window.oldSequence+1);views[id]=await stats();
+  await page.screenshot({path:out+'/'+id+'.png'});
+ }
+ await page.getByLabel('热像色带').selectOption('white');await page.screenshot({path:out+'/white.png'});
+ await page.getByLabel('热像色带').selectOption('black');await page.screenshot({path:out+'/black.png'});
+ await page.getByLabel('热像色带').selectOption('iron');
+ await page.evaluate(()=>{fire.pause();runtime.setRobotFirstPerson(true);window.oldSequence=thermal.frame.sequence});
+ await page.waitForFunction(()=>thermal.frame.sequence>window.oldSequence+1);
+ await page.screenshot({path:out+'/first-person.png'});
+ await page.evaluate(()=>{runtime.setRobotFirstPerson(false);runtime.resize(960,640,1);window.oldSequence=thermal.frame.sequence});
+ await page.waitForFunction(()=>thermal.frame.sequence>window.oldSequence&&thermal.frame.height===128);
+ const resize=await stats();
+ await page.locator('.ant-segmented-item').filter({hasText:'GS 实时深度'}).click();
+ await page.waitForTimeout(400);assert(await page.evaluate(()=>thermal.frame===null));
+ await page.locator('.ant-segmented-item').filter({hasText:'多视图'}).click();await page.waitForFunction(()=>thermal.frame);
+ await page.screenshot({path:out+'/multi-view.png'});
+ await page.route('**/thermal.json',route=>route.fulfill({status:404,body:'missing test fixture'}));
+ await page.evaluate(()=>thermal.clear());await page.waitForFunction(()=>thermal.error?.includes('固体温度文件缺失'));
+ assert(await page.evaluate(()=>thermal.frame===null));
+ await page.unroute('**/thermal.json');await page.evaluate(()=>thermal.clear());await page.waitForFunction(()=>thermal.frame);
+ await page.evaluate(async()=>{await fire.selectVersion('playback-v2')});
+ await page.waitForFunction(()=>thermal.error?.includes('V1'));assert(await page.evaluate(()=>thermal.frame===null));
+ await page.evaluate(async()=>{await fire.selectVersion('playback-v1')});await page.waitForFunction(()=>thermal.frame&&thermal.tracks===1);
+ await page.evaluate(()=>runtime.dispose());await page.waitForTimeout(300);assert(await page.evaluate(()=>thermal.frame===null));
+ assert.equal(errors.length,0,errors.join('\n'));
+ const report={curtain,playing,views,resize,errors};await fs.writeFile(out+'/report.json',JSON.stringify(report,null,2));console.log(report);
+} finally {await browser.close()}

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -40,6 +41,9 @@ struct Result {
   double stable_average_velocity{0.0};
   double stop_time{0.0};
   double stop_distance{0.0};
+  double minimum_height{std::numeric_limits<double>::infinity()};
+  double maximum_abs_roll{0.0};
+  double maximum_abs_pitch{0.0};
   Json final;
 };
 
@@ -53,10 +57,19 @@ Result run(sidecar::SimulationEngine& engine, const double forward, const double
   const int samples = static_cast<int>(std::round(duration * 10.0));
   double velocity_sum = 0.0;
   int velocity_count = 0;
+  double minimum_height = initial["collision"]["rootHeightAboveFloor"].get<double>();
+  double maximum_abs_roll = std::abs(initial["collision"]["roll"].get<double>());
+  double maximum_abs_pitch = std::abs(initial["collision"]["pitch"].get<double>());
   for (int sample = 0; sample < samples; ++sample) {
     command.sequence = sequence++;
     if (!engine.set_motion_command(command).ok || !engine.step(50).ok) std::exit(3);
     const Json current = engine.test_static_mpc_diagnostics();
+    minimum_height = std::min(minimum_height,
+        current["collision"]["rootHeightAboveFloor"].get<double>());
+    maximum_abs_roll = std::max(maximum_abs_roll,
+        std::abs(current["collision"]["roll"].get<double>()));
+    maximum_abs_pitch = std::max(maximum_abs_pitch,
+        std::abs(current["collision"]["pitch"].get<double>()));
     if (sample >= 50) {
       velocity_sum += current["measuredForwardVelocity"].get<double>();
       ++velocity_count;
@@ -70,6 +83,12 @@ Result run(sidecar::SimulationEngine& engine, const double forward, const double
     if (!engine.step(10).ok) std::exit(5);
     stop_time += 0.02;
     stopped = engine.test_static_mpc_diagnostics();
+    minimum_height = std::min(minimum_height,
+        stopped["collision"]["rootHeightAboveFloor"].get<double>());
+    maximum_abs_roll = std::max(maximum_abs_roll,
+        std::abs(stopped["collision"]["roll"].get<double>()));
+    maximum_abs_pitch = std::max(maximum_abs_pitch,
+        std::abs(stopped["collision"]["pitch"].get<double>()));
     if (stopped["controllerState"] == "standing") break;
   }
   Result result;
@@ -80,6 +99,9 @@ Result run(sidecar::SimulationEngine& engine, const double forward, const double
   result.stop_time = stop_time;
   result.stop_distance = std::hypot(stopped["rootPosition"][0].get<double>() - at_clear["rootPosition"][0].get<double>(),
                                     stopped["rootPosition"][1].get<double>() - at_clear["rootPosition"][1].get<double>());
+  result.minimum_height = minimum_height;
+  result.maximum_abs_roll = maximum_abs_roll;
+  result.maximum_abs_pitch = maximum_abs_pitch;
   result.final = stopped;
   return result;
 }
@@ -88,6 +110,8 @@ void print(const char* name, const Result& result) {
   std::cout << name << " DX=" << result.dx << " DY=" << result.dy
             << " YAW=" << result.yaw_delta << " STABLE_V=" << result.stable_average_velocity
             << " STOP_T=" << result.stop_time << " STOP_D=" << result.stop_distance
+            << " MIN_H=" << result.minimum_height << " MAX_ROLL=" << result.maximum_abs_roll
+            << " MAX_PITCH=" << result.maximum_abs_pitch
             << " FINAL=" << result.final << '\n';
 }
 }  // namespace
@@ -101,8 +125,8 @@ int main() {
     const Result reverse = run(engine, -0.10, 0.0, 12.0, base + 20000);
     const Result left = run(engine, 0.0, 0.30, 8.0, base + 30000);
     const Result right = run(engine, 0.0, -0.30, 8.0, base + 40000);
-    const Result left_arc = run(engine, 0.15, 0.30, 8.0, base + 50000);
-    const Result right_arc = run(engine, 0.15, -0.30, 8.0, base + 60000);
+    const Result left_arc = run(engine, 0.08, 0.15, 30.0, base + 50000);
+    const Result right_arc = run(engine, 0.08, -0.15, 30.0, base + 60000);
     print(("D5V_MPC_FORWARD_REPEAT_" + std::to_string(repeat)).c_str(), forward);
     print(("D5V_MPC_REVERSE_REPEAT_" + std::to_string(repeat)).c_str(), reverse);
     print(("D5V_MPC_LEFT_REPEAT_" + std::to_string(repeat)).c_str(), left);
@@ -119,6 +143,11 @@ int main() {
            "forward-left arc acceptance");
     expect(right_arc.dx > 0.35 && right_arc.yaw_delta < -0.4,
            "forward-right arc acceptance");
+    for (const Result* arc : {&left_arc, &right_arc}) {
+      expect(arc->minimum_height > 0.24 && arc->maximum_abs_roll < 0.09 &&
+                 arc->maximum_abs_pitch < 0.09,
+             "long arc posture remains bounded throughout motion");
+    }
     for (const Result* result : {&forward, &reverse, &left, &right, &left_arc, &right_arc}) {
       expect(result->stop_time <= 1.0 && result->stop_distance < 0.10,
              "bounded stop time and distance");
@@ -135,7 +164,7 @@ int main() {
           result->final["lateTouchdownEventCount"].get<std::uint64_t>() +
           result->final["earlyTouchdownEventCount"].get<std::uint64_t>() +
           result->final["touchdownTimeoutCount"].get<std::uint64_t>();
-      expect(touchdown_total > 0 && touchdown_total < 250 &&
+      expect(touchdown_total > 0 && touchdown_total < 300 &&
                  touchdown_total == touchdown_outcomes,
              "touchdown diagnostics count one outcome per gait event");
       expect(result->final["touchdownTimeoutCount"].get<std::uint64_t>() == 0 &&

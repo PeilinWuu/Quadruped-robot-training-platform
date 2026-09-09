@@ -28,11 +28,13 @@ describe('KeyboardLocomotionController', () => {
 
   it('maps combinations and conflicting keys deterministically', async () => {
     const controller = make(); controller.enable(); key('keydown', 'KeyW'); key('keydown', 'KeyA')
-    await vi.runAllTicks(); expect(commands.at(-1)).toMatchObject({ forwardVelocity: .12, yawRate: .24 })
+    await vi.runAllTicks(); expect(commands.at(-1)).toMatchObject({ forwardVelocity: .08, yawRate: .15 })
     key('keydown', 'KeyS'); key('keydown', 'KeyD'); await vi.runAllTicks()
     expect(commands.at(-1)).toMatchObject({ forwardVelocity: 0, yawRate: 0 })
     controller.setSpeed('medium'); key('keyup', 'KeyS'); key('keyup', 'KeyD'); await vi.runAllTicks()
-    expect(commands.at(-1)).toMatchObject({ forwardVelocity: .15, yawRate: .3 })
+    expect(commands.at(-1)).toMatchObject({ forwardVelocity: .08, yawRate: .15 })
+    key('keyup', 'KeyW'); key('keyup', 'KeyA'); key('keydown', 'KeyS'); key('keydown', 'KeyD')
+    await vi.runAllTicks(); expect(commands.at(-1)).toMatchObject({ forwardVelocity: -.08, yawRate: -.15 })
     controller.dispose()
   })
 
@@ -52,6 +54,16 @@ describe('KeyboardLocomotionController', () => {
     key('keydown', 'KeyW', window, true); expect(commands).toHaveLength(count)
     controller.dispose(); const after = commands.length; key('keydown', 'KeyS'); await vi.advanceTimersByTimeAsync(100)
     expect(commands).toHaveLength(after)
+  })
+
+  it('keeps reset available after fault-driven keyboard disable', async () => {
+    const controller = make(); controller.enable(); controller.disable('仿真状态变化，已自动停止')
+    key('keydown', 'KeyR'); await vi.runAllTicks()
+    expect(reset).toHaveBeenCalledOnce()
+    const input = document.createElement('input'); document.body.append(input)
+    key('keydown', 'KeyR', input); await vi.runAllTicks()
+    expect(reset).toHaveBeenCalledOnce()
+    controller.dispose(); input.remove()
   })
 
   it('falls back to event.key when the Windows host omits a standard code', async () => {

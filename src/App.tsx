@@ -16,7 +16,7 @@ import './App.css'
 
 function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [messageApi, holder] = message.useMessage()
-  const { initialize, initializeSimulation, refreshSimulation, shutdownSimulation, tick, appendMetrics } = useAppStore()
+  const { initialize, tick, appendMetrics } = useAppStore()
   const notify = useCallback((text: string) => void messageApi.info(text), [messageApi])
   useEffect(() => { void initialize().catch((error: unknown) => messageApi.error(error instanceof Error ? error.message : '数据初始化失败')) }, [initialize, messageApi])
   useEffect(() => {
@@ -26,17 +26,6 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     window.addEventListener('reserved-action', reserved)
     return () => { window.clearInterval(clock); window.clearInterval(metrics); window.removeEventListener('reserved-action', reserved) }
   }, [appendMetrics, notify, tick])
-  useEffect(() => {
-    void initializeSimulation()
-    const poll = window.setInterval(() => void refreshSimulation(), 1000)
-    const closeSimulation = () => { void shutdownSimulation() }
-    window.addEventListener('beforeunload', closeSimulation)
-    return () => {
-      window.clearInterval(poll)
-      window.removeEventListener('beforeunload', closeSimulation)
-      void shutdownSimulation()
-    }
-  }, [initializeSimulation, refreshSimulation, shutdownSimulation])
   return <div className="app-shell">{holder}<Header user={user} onLogout={onLogout}/><main className="dashboard"><SceneSidebar notify={notify}/><div className="center-column"><SimulationView notify={notify}/><div className="lower-row"><TrainingPanel notify={notify}/><ChartsPanel/></div></div><aside className="right-column"><SensorPanel/><MapPanel/><RobotPanel/></aside></main><StatusBar displayName={user.displayName}/></div>
 }
 
@@ -44,7 +33,7 @@ function AuthenticatedApp() {
   const [user, setUser] = useState<AuthUser | null>(null); const [checking, setChecking] = useState(true); const [messageApi, holder] = message.useMessage()
   // 首次加载先向服务端恢复会话，校验完成前不渲染受保护的监控界面。
   useEffect(() => { authService.me().then(({ user: current }) => setUser(current)).catch(() => setUser(null)).finally(() => setChecking(false)) }, [])
-  const logout = async () => { try { await useAppStore.getState().shutdownSimulation(); await authService.logout(); setUser(null); messageApi.success('已安全退出登录') } catch (error) { messageApi.error(error instanceof Error ? error.message : '退出失败') } }
+  const logout = async () => { try { await authService.logout(); setUser(null); messageApi.success('已安全退出登录') } catch (error) { messageApi.error(error instanceof Error ? error.message : '退出失败') } }
   if (checking) return <div className="auth-loading">{holder}<Spin size="large"/><span>正在验证安全会话…</span></div>
   return <>{holder}{user ? <Dashboard user={user} onLogout={() => void logout()}/> : <AuthScreen onAuthenticated={setUser}/>}</>
 }

@@ -1,7 +1,9 @@
 import type { RobotPose, SimulationModelId } from '../../../services/simulation/types'
+import type { Entity } from 'playcanvas'
 
 export interface RobotBounds { center: [number, number, number]; radius: number }
 export interface RobotRig {
+  readonly robotRoot: Entity
   readonly modelId: SimulationModelId
   readonly primitiveCount: number
   readonly entityCount: number

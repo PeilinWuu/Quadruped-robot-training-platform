@@ -132,7 +132,7 @@ export function GaussianViewport() {
               {robotPreview.overlay?.modelId === 'unitree-go2-menagerie' ? <button type="button" onClick={reloadRobotVisuals}>重新加载网格</button> : null}
             </div>
             <div className="environment-preview__summary">
-              <strong>平地碰撞演示</strong>
+              <strong>视觉参考地面</strong>
               <span>{environmentPreview.halfExtent * 2} × {environmentPreview.halfExtent * 2} m · Y={environmentPreview.floorHeight}</span>
               <div className="robot-preview__actions">
                 <button type="button" onClick={toggleEnvironmentVisible}>{environmentPreview.visible ? '隐藏平地' : '显示平地'}</button>

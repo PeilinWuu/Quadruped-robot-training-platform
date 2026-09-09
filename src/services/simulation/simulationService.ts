@@ -124,19 +124,7 @@ export class ManagedSimulationService {
   }
 
   start(): Promise<SimulationStatus> {
-    return this.serial(async () => {
-      const adapter = await this.adapterForUse()
-      let status = await adapter.getStatus()
-      if (status.state !== 'ready') status = await adapter.startSidecar()
-      if (status.model?.modelId !== this.selectedModelId) {
-        if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
-        await adapter.loadModel(this.selectedModelId, 'flat-ground-v1')
-        status = await adapter.getStatus()
-      }
-      await this.ensureSubscription(adapter)
-      if (status.simulationState !== 'running') await adapter.startSimulation()
-      return adapter.getStatus()
-    })
+    return this.serial(async () => this.startInternal(await this.adapterForUse()))
   }
 
   pause(): Promise<SimulationStatus> {
@@ -172,6 +160,11 @@ export class ManagedSimulationService {
     return this.serial(async () => {
       const adapter = await this.adapterForUse()
       const before = await adapter.getStatus()
+      if (['failed', 'crashed', 'unresponsive'].includes(before.state)) {
+        await this.disposeSubscription()
+        await adapter.stopSidecar()
+        return this.startInternal(adapter)
+      }
       const resumeAfterReset = before.simulationState === 'running'
       this.telemetry.clear()
       if (resumeAfterReset) await adapter.pauseSimulation()
@@ -220,6 +213,18 @@ export class ManagedSimulationService {
   private async adapterForUse(): Promise<SimulationAdapter> {
     this.adapter ??= await this.loadAdapter()
     return this.adapter
+  }
+  private async startInternal(adapter: SimulationAdapter): Promise<SimulationStatus> {
+    let status = await adapter.getStatus()
+    if (status.state !== 'ready') status = await adapter.startSidecar()
+    if (status.model?.modelId !== this.selectedModelId) {
+      if (!['unloaded', 'stopped'].includes(status.simulationState)) await adapter.stopSimulation()
+      await adapter.loadModel(this.selectedModelId, 'flat-ground-v1')
+      status = await adapter.getStatus()
+    }
+    await this.ensureSubscription(adapter)
+    if (status.simulationState !== 'running') await adapter.startSimulation()
+    return adapter.getStatus()
   }
   private withAdapter<T>(operation: (adapter: SimulationAdapter) => Promise<T>): Promise<T> {
     return this.adapterForUse().then(operation)

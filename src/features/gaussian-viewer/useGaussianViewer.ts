@@ -143,6 +143,7 @@ export function useGaussianViewer() {
   const [orientationBusy, setOrientationBusy] = useState(false)
   const [importState, setImportState] = useState<ImportUiState>(INITIAL_IMPORT_STATE)
   const [robotPreview, setRobotPreview] = useState<RobotPreviewState>(INITIAL_ROBOT_STATE)
+  const robotFirstPerson = useAppStore((state) => state.simulation.robotFirstPerson)
   const [environmentPreview, setEnvironmentPreview] = useState(INITIAL_ENVIRONMENT_STATUS)
   const desktop = sceneImportSupported()
   const robotDesktop = simulationDesktopSupported()
@@ -234,6 +235,7 @@ export function useGaussianViewer() {
     runtimeRef.current?.resetCamera?.()
   }, [])
 
+
   const toggleRobotVisible = useCallback(() => {
     robotVisibleRef.current = !robotVisibleRef.current
     runtimeRef.current?.setRobotVisible?.(robotVisibleRef.current)
@@ -281,6 +283,7 @@ export function useGaussianViewer() {
     runtimeRef.current?.reloadRobotVisuals?.()
     setRobotPreview((current) => ({ ...current, error: null }))
   }, [])
+
   const toggleEnvironmentVisible = useCallback(() => {
     environmentVisibleRef.current = !environmentVisibleRef.current
     runtimeRef.current?.setEnvironmentVisible?.(environmentVisibleRef.current)
@@ -437,26 +440,27 @@ export function useGaussianViewer() {
 
   useEffect(() => {
     if (!robotDesktop) return
-    const removePoseListener = simulationService.onPose((pose) => {
-      runtimeRef.current?.setRobotFollow?.(useAppStore.getState().simulation.followRobot)
-      if (runtimeRef.current?.updateRobotPose?.(pose)) {
-        runtimeRef.current.setRobotVisible?.(robotVisibleRef.current)
-      }
-    })
     const removeEventListener = simulationService.onEvent((event) => {
       if (event.type === 'model_loaded') {
         runtimeRef.current?.setRobotModel?.(event.payload.modelId as 'unitree-go2-menagerie' | 'minimal-quadruped-v1')
-        runtimeRef.current?.clearRobotPose?.()
-      } else if (event.type === 'error') {
-        runtimeRef.current?.setRobotVisible?.(false)
-        runtimeRef.current?.clearRobotPose?.()
       }
     })
     return () => {
-      removePoseListener()
       removeEventListener()
     }
   }, [robotDesktop])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime?.setRobotFirstPerson) return
+    const accepted = runtime.setRobotFirstPerson(robotFirstPerson)
+    if (!accepted && robotFirstPerson) {
+      useAppStore.getState().setRobotFirstPerson(false)
+      setRobotPreview((current) => ({ ...current, error: '机器人姿态尚未就绪，无法进入第一视角' }))
+    } else if (accepted) {
+      setRobotPreview((current) => ({ ...current, error: null }))
+    }
+  }, [robotFirstPerson])
 
   useEffect(() => {
     if (!robotDesktop) return
@@ -577,9 +581,8 @@ export function useGaussianViewer() {
         runtime.setRobotCalibration?.(robotCalibrationRef.current)
         runtime.setRobotVisible?.(robotVisibleRef.current)
         runtime.setRobotVisualMode?.(robotVisualModeRef.current)
+        runtime.setRobotFirstPerson?.(useAppStore.getState().simulation.robotFirstPerson)
         runtime.setEnvironmentGridVisible?.(environmentGridRef.current)
-        const bufferedPose = simulationService.getBufferedPose()
-        if (bufferedPose) runtime.updateRobotPose?.(bufferedPose, true)
         if (appliedSize.width >= 0 && appliedSize.height >= 0) {
           runtime.resize(appliedSize.width, appliedSize.height, appliedSize.pixelRatio)
         }

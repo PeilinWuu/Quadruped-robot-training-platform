@@ -48,6 +48,8 @@ export class KeyboardLocomotionController {
   private readonly onState: (state: KeyboardLocomotionState) => void
   private readonly hostWindow: Window
   private readonly hostDocument: Document
+  private readonly keyDown: (event: KeyboardEvent) => void
+  private readonly recoveryKeyDown: (event: KeyboardEvent) => void
 
   constructor(
     transport: KeyboardLocomotionTransport,
@@ -56,7 +58,11 @@ export class KeyboardLocomotionController {
     hostDocument: Document = document,
   ) {
     this.transport = transport; this.onState = onState
-    this.hostWindow = hostWindow; this.hostDocument = hostDocument; this.publish()
+    this.hostWindow = hostWindow; this.hostDocument = hostDocument
+    this.keyDown = this.handleKeyDown.bind(this)
+    this.recoveryKeyDown = this.handleRecoveryKeyDown.bind(this)
+    this.hostWindow.addEventListener('keydown', this.recoveryKeyDown)
+    this.publish()
   }
 
   isEnabled(): boolean { return this.enabled }
@@ -90,7 +96,14 @@ export class KeyboardLocomotionController {
     this.publish()
   }
 
-  dispose(): void { if (!this.disposed) { this.disable('控制器已清理'); this.disposed = true } }
+  dispose(): void {
+    if (!this.disposed) {
+      this.disable('控制器已清理')
+      this.hostWindow.removeEventListener('keydown', this.keyDown)
+      this.hostWindow.removeEventListener('keydown', this.recoveryKeyDown)
+      this.disposed = true
+    }
+  }
 
   private target(): { forwardVelocity: number; yawRate: number } {
     const values = this.speed === 'low' ? LOW : MEDIUM
@@ -98,8 +111,13 @@ export class KeyboardLocomotionController {
     const reverse = this.pressed.has('KeyS') || this.pressed.has('ArrowDown')
     const left = this.pressed.has('KeyA') || this.pressed.has('ArrowLeft')
     const right = this.pressed.has('KeyD') || this.pressed.has('ArrowRight')
-    return { forwardVelocity: forward === reverse ? 0 : (forward ? values.forward : values.reverse),
-      yawRate: left === right ? 0 : (left ? values.yaw : -values.yaw) }
+    let forwardVelocity = forward === reverse ? 0 : (forward ? values.forward : values.reverse)
+    let yawRate = left === right ? 0 : (left ? values.yaw : -values.yaw)
+    if (forwardVelocity !== 0 && yawRate !== 0) {
+      forwardVelocity = Math.sign(forwardVelocity) * Math.min(Math.abs(forwardVelocity), .08)
+      yawRate = Math.sign(yawRate) * Math.min(Math.abs(yawRate), .15)
+    }
+    return { forwardVelocity, yawRate }
   }
 
   private async sendHeartbeat(): Promise<void> {
@@ -122,8 +140,9 @@ export class KeyboardLocomotionController {
     this.resetting = true
     this.pressed.clear(); this.stopReason = '正在重置机器人'; this.publish()
     try {
-      await this.transport.clearMotionCommand()
-      await this.transport.reset()
+      const clear = this.transport.clearMotionCommand().catch(() => undefined)
+      const reset = this.transport.reset()
+      await Promise.all([clear, reset])
       this.stopReason = 'R 已重置到出生点'
     } catch {
       this.stopReason = '重置失败，已停止发送运动命令'
@@ -134,18 +153,20 @@ export class KeyboardLocomotionController {
     }
   }
 
-  private readonly keyDown = (event: KeyboardEvent): void => {
-    if (!this.enabled || editableTarget(event.target)) return
+  private handleKeyDown(event: KeyboardEvent): void {
+    if (this.disposed || editableTarget(event.target)) return
     const code = normalizedCode(event)
+    if (!this.enabled) return
     if (code === 'Escape') { event.preventDefault(); this.disable('Esc 已解除键盘控制'); return }
     if (code === 'Space') { event.preventDefault(); this.stopImmediately('Space 已清除运动目标'); return }
-    if (code === 'KeyR') {
-      event.preventDefault(); void this.resetRobot(); return
-    }
     if (!CONTROL_KEYS.has(code)) return
     event.preventDefault()
     if (event.repeat || this.pressed.has(code)) return
     this.pressed.add(code); this.stopReason = null; this.publish(); void this.sendHeartbeat()
+  }
+  private handleRecoveryKeyDown(event: KeyboardEvent): void {
+    if (this.disposed || editableTarget(event.target) || normalizedCode(event) !== 'KeyR') return
+    event.preventDefault(); void this.resetRobot()
   }
   private readonly keyUp = (event: KeyboardEvent): void => {
     const code = normalizedCode(event)

@@ -2,6 +2,11 @@
 
 This Windows x64 C++17 executable is the native simulation and locomotion process used by the Tauri desktop application. It is no longer a protocol-only test stub.
 
+The current default viewer uses a separate procedural motion service. Tauri's
+default dev/build hooks do not build this sidecar, and the default installer
+resource list does not bundle its executable or simulation models. Build it
+explicitly for native development; see [getting started](../../docs/GETTING_STARTED.md).
+
 The sidecar currently provides:
 
 - MuJoCo 3.11.0 fixed-step simulation;

@@ -8,6 +8,7 @@ import type {
 } from './robot/RobotOverlayRuntime'
 import type { Go2VisualMode } from './robot/go2VisualManifest'
 import type { EnvironmentOverlayStatus } from './environment/environmentTypes'
+import type { GroundPlane } from '../../services/robot-motion-playback/groundPlaneService'
 
 export const MAX_SCENE_BYTES = 50 * 1024 * 1024
 
@@ -58,6 +59,17 @@ export interface ViewerRuntimeStatus {
   controlsEnabled?: boolean
   fallback?: boolean
   error: string | null
+  /** True when the Gaussian renderer can produce a linear depth frame. */
+  depthAvailable?: boolean
+}
+
+export interface GaussianDepthFrame {
+  width: number
+  height: number
+  /** Linear camera-space depth in metres; 0 marks an invalid/empty pixel. */
+  values: Float32Array
+  sequence: number
+  timestampMs: number
 }
 
 export interface ViewerRuntime {
@@ -82,6 +94,14 @@ export interface ViewerRuntime {
   getRobotOverlayStatus?(): RobotOverlayStatus | null
   setRobotVisualMode?(mode: Go2VisualMode): void
   reloadRobotVisuals?(): void
+  setRobotFirstPerson?(enabled: boolean): boolean
+  /** Toggle the Gaussian depth pass independently from the RGB pass. */
+  setDepthCaptureEnabled?(enabled: boolean): boolean
+  /** Returns the most recently rendered Gaussian depth frame, if available. */
+  getLatestDepthFrame?(): GaussianDepthFrame | null
+  startGroundCalibration?(sceneKey?: string): void
+  cancelGroundCalibration?(): void
+  getGroundCalibration?(): { active: boolean; points: number; plane: GroundPlane | null }
   setEnvironmentVisible?(visible: boolean): void
   setEnvironmentGridVisible?(visible: boolean): void
   focusEnvironment?(): boolean

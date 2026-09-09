@@ -6,6 +6,9 @@
 namespace sidecar::controllers::mpc {
 namespace {
 
+constexpr double kLandingProbeSpeed = 0.18;
+constexpr double kLandingProbeDepth = 0.018;
+
 bool any_command(const MotionTarget& target) {
   return target.enabled && (std::abs(target.forward_velocity) > 1e-4 || std::abs(target.yaw_rate) > 1e-4);
 }
@@ -37,6 +40,7 @@ void Go2ConvexMpcController::reset(const RobotState& state) {
   body_height_ = state.base_position.z();
   consecutive_qp_failures_ = 0;
   previous_contacts_.fill(true);
+  expected_touchdown_times_.fill(state.simulation_time);
   missed_contact_ticks_.fill(0);
   for (auto& force : desired_forces_) force.setZero();
   telemetry_ = ControllerTelemetry{};
@@ -81,6 +85,9 @@ void Go2ConvexMpcController::start_swings(const RobotState& state, const MotionT
       swings_[leg].configure(state.foot_position_world[leg],
           footholds_.plan(state, placement_target, leg, gait_.stance_duration()),
           state.simulation_time, gait_.swing_duration(), 0.05);
+    }
+    if (!previous_contacts_[leg] && contacts[leg]) {
+      expected_touchdown_times_[leg] = state.simulation_time;
     }
   }
   previous_contacts_ = contacts;
@@ -185,15 +192,26 @@ bool Go2ConvexMpcController::update(const RobotState& state, const MotionTarget&
     }
   }
 
+  ContactVector control_contacts = contacts;
   std::array<SwingSample, kLegCount> swing_samples{};
   for (std::size_t leg = 0; leg < kLegCount; ++leg) {
-    if (!contacts[leg] && swings_[leg].configured()) swing_samples[leg] = swings_[leg].sample(state.simulation_time);
-    else {
+    if (!contacts[leg] && swings_[leg].configured()) {
+      swing_samples[leg] = swings_[leg].sample(state.simulation_time);
+    } else if (contacts[leg] && !state.contacts[leg] && missed_contact_ticks_[leg] > 0U &&
+               swings_[leg].configured()) {
+      control_contacts[leg] = false;
+      swing_samples[leg] = swings_[leg].sample(state.simulation_time);
+      const double elapsed = std::max(0.0, state.simulation_time - expected_touchdown_times_[leg]);
+      const double probe = std::min(kLandingProbeDepth, kLandingProbeSpeed * elapsed);
+      swing_samples[leg].position.z() -= probe;
+      swing_samples[leg].velocity.z() = probe < kLandingProbeDepth ? -kLandingProbeSpeed : 0.0;
+      swing_samples[leg].acceleration.z() = 0.0;
+    } else {
       swing_samples[leg].position = state.foot_position_world[leg];
       swing_samples[leg].velocity.setZero();
     }
   }
-  legs_.compute(state, home_, contacts, desired_forces_, swing_samples, commands);
+  legs_.compute(state, home_, control_contacts, desired_forces_, swing_samples, commands);
   for (const auto& command : commands) {
     if (!command.finite()) {
       state_ = ControllerState::fault;
