@@ -2,6 +2,8 @@
 
 先按 [快速开始](docs/GETTING_STARTED.md) 启动应用，再阅读 [系统架构](docs/ARCHITECTURE.md) 和相关专题。讨论时请注明是在桌面、浏览器夹具还是 MuJoCo 中复现。
 
+后端研究从 [research/README.md](research/README.md) 开始。FieryGS 的实际代码改动需要更新主仓库中的生产补丁/overlay 和对应哈希，不能只保存在被忽略的 `.cache/research/FieryGS`。共享实验输入通过独立 ZIP 和版本清单管理；原生物理源码直接在 `native/mujoco-sidecar` 协作。
+
 ## 工作流程
 
 1. 在 Issue 或团队讨论中确认问题、预期行为和验收方式。

@@ -4,6 +4,8 @@
 
 ## 使用与共同开发
 
+- [后端研究入口](../research/README.md) 与 [交付审计](BACKEND_RESEARCH_AUDIT.md)：恢复定制求解器、研究输入、最小实验、已验证与缺失项。
+
 - [受邀共同开发者入口](COLLABORATOR_QUICKSTART.md)：一个共享资产包、一条导入命令，运行完整展示。
 
 - [快速开始](GETTING_STARTED.md)：环境、桌面/浏览器启动、构建与原生模块。
