@@ -24,6 +24,10 @@ npm run tauri -- dev --no-watch --config tmp/tauri-reuse-dev.json
 
 Windows 上浏览器、开发服务器或文件查看器可能占用 `public/robot-visuals/unitree-go2/generated`。关闭自己打开的相关视图/开发进程后重试 `npm run build:go2-visuals`，不要同时构建与视觉验收，也不要删除源码/锁文件。`npm run verify:go2-visuals` 可检查现有 GLB 是否完整。
 
+## 全新检出后 Go2 XML/资源哈希不匹配
+
+锁定资源按原始字节校验。Windows 的 `core.autocrlf=true` 可能把 LF 转成 CRLF；仓库 `.gitattributes` 已对整个 Go2 模型目录设置 `-text`，保证检出字节不变。不要修改锁文件或跳过哈希校验。若旧 checkout 已发生转换，先保留自己的修改，再使用包含该规则的全新 checkout 验证 `npm run verify:go2`。
+
 ## 火焰 404 或打包找不到 D 盘文件
 
 配置 `.env.local` 中的 `GS_SCENE_DATA_ROOT` 并检查四组播放目录、V1 温度附加帧。没有数据而只需基础桌面包时设 `BUNDLE_FIRE_PLAYBACK=0`。该选项不隐藏火焰 UI，也不生成替代数据。
