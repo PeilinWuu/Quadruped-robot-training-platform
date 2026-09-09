@@ -9,11 +9,11 @@
 | GUI、MuJoCo/MPC、后端启动工具 | 本 Git 仓库 |
 | FieryGS 基线 | `setup-fierygs.py` 拉取固定上游提交 |
 | 本地生产适配 | Git 中的 `fierygs/local-production.patch` 和 `overlay/`，启动工具自动应用 |
-| 求解与场景处理输入 | 维护者另发 `office_01-research-inputs-v1.zip`，约 71.3 MB |
+| 求解与场景处理输入 | [研究输入包下载（夸克网盘）](https://pan.quark.cn/s/083d85b8dd33)：`office_01-research-inputs-v1.zip`，约 71.3 MB |
 | 展示资产 | 原夸克网盘中的 `office_01-collaboration-v1.json.gz`，独立于研究输入包 |
 | 原始照片/COLMAP | 在已审计数据目录中未找到，不能承诺提供原始重建复现 |
 
-**研究输入包尚未上传到现有网盘。** 请向维护者索取；已有网盘链接只确认由维护者提供用于展示包，不代表其中包含研究包。
+维护者提供的 [研究输入包分享](https://pan.quark.cn/s/083d85b8dd33) 与 [展示包分享](https://pan.quark.cn/s/4a16f7a62ef6) 是两个独立入口。下载研究 ZIP 后不要手动解压，按下文运行校验安装工具；网盘分享链接不能直接作为脚本参数。若链接失效、要求未提供的提取码或文件名不符，请联系维护者。安装工具会核对文件是否匹配当前 Git 中的清单。
 
 ## A. 恢复火灾源码
 
