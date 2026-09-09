@@ -1,0 +1,663 @@
+{
+  "schema": 1,
+  "description": "office_01 GS + V1/V2 fire playback + relative thermal; no solver sources or raw simulation",
+  "bytes": 21647747,
+  "sha256": "b50053f76f5eb2549659d459ed1525a36b29ef369416d4b768b378106241488d",
+  "files": [
+    {
+      "path": "scene_yup.sog",
+      "bytes": 15119786,
+      "sha256": "f4d6d384216654b0eaacb4dfb93ed61e47074a933f6531d05d74db28e109b5f3"
+    },
+    {
+      "path": "fire_playback/table_high/frames_000.bin",
+      "bytes": 4200928,
+      "sha256": "c8a9f3a6cdfdfa217a4a930a28732250582c24d3423a085bd9378dedaf2a78f4"
+    },
+    {
+      "path": "fire_playback/table_high/frames_001.bin",
+      "bytes": 4200928,
+      "sha256": "27f1006f351d0945a5d74a9a82d534e801f43adc04a60959fda8616f2f13df12"
+    },
+    {
+      "path": "fire_playback/table_high/frames_002.bin",
+      "bytes": 4200928,
+      "sha256": "237568d54643f19ee6056fd423df680ae19c395357f8436d93affa86e8e38a43"
+    },
+    {
+      "path": "fire_playback/table_high/frames_003.bin",
+      "bytes": 4200928,
+      "sha256": "70426cf5a23889caffdf1c69993e8a28b6d2a3578c86a6b8ce6c9f8d9e4580a3"
+    },
+    {
+      "path": "fire_playback/table_high/frames_004.bin",
+      "bytes": 2100464,
+      "sha256": "05e997329be2647609b1044adbcd88b255832216554c4c4edcea9cfdc93a157c"
+    },
+    {
+      "path": "fire_playback/table_high/metadata.json",
+      "bytes": 12900,
+      "sha256": "830be5cb4838ee26425cad9d7fc3fd2975807799af01631fefe78b075e7b668c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal.json",
+      "bytes": 11883,
+      "sha256": "9e079f0b6974c6c8b3505ec51646acbb2b106a2363c9d46e798e97973e86a052"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_028.bin",
+      "bytes": 27195,
+      "sha256": "2f3ca20d1d01e9c505c4207915099f7efff70b80998da55b6632485123fd9114"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_030.bin",
+      "bytes": 27195,
+      "sha256": "72c385cdd3da5dba00ecc89fb66acc694577b778870381c12b48ee6bde9b0b3c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_032.bin",
+      "bytes": 27195,
+      "sha256": "190314fb85e2fbe80b90ec45e330d3ca96501ffb8b7e8f6e7e281cb76270355f"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_034.bin",
+      "bytes": 27195,
+      "sha256": "77e2d6f096594ae05e412fb2a5562d1d7c8d6f6223b1ad1d231a78311764d432"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_036.bin",
+      "bytes": 27195,
+      "sha256": "493855d578351027cec2ae3f073fd26df83387cd8af62770838d7312db0fa022"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_038.bin",
+      "bytes": 27195,
+      "sha256": "bc84f2d535860c569519b096f6dbb83720e5a1ae34a41fe80f02d096554d015c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_040.bin",
+      "bytes": 27195,
+      "sha256": "a70b29a7d15061bf9861c58ded462cb1c9fa6ed877325204b53079e473e964a9"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_042.bin",
+      "bytes": 27195,
+      "sha256": "d1423a15ba00036a19be484e304a4b14608a5a37a0b8203bafe639e0a69ead6c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_044.bin",
+      "bytes": 27195,
+      "sha256": "3d152426f8c1759ebd4108f88b421d1281aaf19c715c27c9d85a9d90e9121300"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_046.bin",
+      "bytes": 27195,
+      "sha256": "d6efcdf9a8e1127351e48049f6765a684213c5d0fe8fa1b98745b33e73497694"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_048.bin",
+      "bytes": 27195,
+      "sha256": "6810459d2aa8b6136b57de945bd23f359e62624b33ab77fae7626bae5922854c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_050.bin",
+      "bytes": 27195,
+      "sha256": "16232611a884136ef8033a48ee4387ccee9a0cd8e165790d72af875722cb2239"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_052.bin",
+      "bytes": 27195,
+      "sha256": "586b253873d02f343b74d7b3521bfa178efa57f6600bc007509e11e229b88409"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_054.bin",
+      "bytes": 27195,
+      "sha256": "60ac0a67c457e003d751bd945be05e08903f7a6dbb0439ec12e480faf3113824"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_056.bin",
+      "bytes": 27195,
+      "sha256": "fc9ea7008f17b53c34b86e7b2528f38a3c13a1d6e534114073f732843c20cd38"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_058.bin",
+      "bytes": 27195,
+      "sha256": "3561f57baf29410ab7ce23ca9a012707b06cf8df7fb2b7c80284614cc392fccb"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_060.bin",
+      "bytes": 27195,
+      "sha256": "4524e933eb06ae5a823d3c2691e6da4c4bfc5feb918a9407c829e35df4de767a"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_062.bin",
+      "bytes": 27195,
+      "sha256": "dca2b98a60b482e1a8ead6cf837e4cd8472d2bfb529e055125464ad29b8b908a"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_064.bin",
+      "bytes": 27195,
+      "sha256": "32c79adf6f4a77e3f513f42caf7cb13b41b7954b9d7c40c18cb283105e304e86"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_066.bin",
+      "bytes": 27195,
+      "sha256": "cbe172026fd8dbafcfcb2eb1bd9900f6ea6737cfcd7f2ce5c17deff04139f9f0"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_068.bin",
+      "bytes": 27195,
+      "sha256": "1d3e08ce75b485b74265441a317176b6bfc7d50b7086594013baaf6a482acf65"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_070.bin",
+      "bytes": 27195,
+      "sha256": "1e75c9844132715d49d837fe81335f97ec4e8ee419fa4231555a3e85ac98023b"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_072.bin",
+      "bytes": 27195,
+      "sha256": "64a8809406b0197a26247a1c637867a3a3c57e42ba5ae84c962054942d025472"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_074.bin",
+      "bytes": 27195,
+      "sha256": "1a92c08fa5af4ae751210cf48a705c842a7aef3006d5ce2d5ed52e769853fbe1"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_076.bin",
+      "bytes": 27195,
+      "sha256": "53a58530339b890718c6917572a739ebe98b06188cfa74ba861e392d65e6d077"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_078.bin",
+      "bytes": 27195,
+      "sha256": "ba2b7898c205228d3e5f21dfb0331404fc0536c194cc254c9c735f590527a314"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_080.bin",
+      "bytes": 27195,
+      "sha256": "0b37e5aa66bd2ab51bd7c5c252afce64c0790cd6e54658289b21540d988a2425"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_082.bin",
+      "bytes": 27195,
+      "sha256": "76e83a98e9237fc1a3960db6e89de3471d2f461e4ff49546286bd4ebf4a38d5d"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_084.bin",
+      "bytes": 27195,
+      "sha256": "10cc569a198648cda4d392e9d7ece665a8f1752d20270631fc6254311a7556bc"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_086.bin",
+      "bytes": 27195,
+      "sha256": "26c72a8468c8ebe9cf49e393e7c2d43540edfc920023e120efe94f8872df77f6"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_088.bin",
+      "bytes": 27195,
+      "sha256": "404be8f83e42bf35d0792d862a02c24dbda1ce7dbeff11bc4e0d34d749bb7b50"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_090.bin",
+      "bytes": 27195,
+      "sha256": "fcb8e9eeebe9772f60fba91a6aff29894dc2fbb1794cfd053ccc31dc3daf61e2"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_092.bin",
+      "bytes": 27195,
+      "sha256": "329940e88605b78158a447c9d20e4db24a476f958deeb6e719646646c414e6c2"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_094.bin",
+      "bytes": 27195,
+      "sha256": "4bda24b1c338cbae3d8f19faae3e11aa9632ed4a90cdd3abc40abe3562ce546d"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_096.bin",
+      "bytes": 27195,
+      "sha256": "1b053ecc0c34e33cc720ffaf7864213d91d635af536e58ccf046f5a8c26cd4c5"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_098.bin",
+      "bytes": 27195,
+      "sha256": "3f3d0c572614de7081c94fcb2046cb82e2abab64442be98c956b098f890dd6d3"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_100.bin",
+      "bytes": 27195,
+      "sha256": "b9235cf10b333313836cfab7631d52c9501bbb2009bfe467435aec91bc7bef8a"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_102.bin",
+      "bytes": 27195,
+      "sha256": "be3cc6fc2c7a01b1dc596b0523c7cdb32478311d941576c44e72201f31ac25c2"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_104.bin",
+      "bytes": 27195,
+      "sha256": "443241478d9f2208ff5875e9288ca16436540dee63c17f6d2e96052493d02396"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_106.bin",
+      "bytes": 27195,
+      "sha256": "779468398bcdac8ef7758f2e033b376669a90db8091141c7abc232df694a76ec"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_108.bin",
+      "bytes": 27195,
+      "sha256": "f40d9f7adfb98e7b689ee729933ae0c97ba3a6208ec2f9c5a527acfbbce5bb63"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_110.bin",
+      "bytes": 27195,
+      "sha256": "c7ec3fb809201a0809d6944cc83ca456e845409aeb5fb94e34d2c0e92de5430d"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_112.bin",
+      "bytes": 27195,
+      "sha256": "b01c21713b9eaf80c044794473181a2b836dc976a8bd00294a474ca1d6923304"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_114.bin",
+      "bytes": 27195,
+      "sha256": "928125023d03dec49ec0fb1d1048f7d136be8cfcc1769127861804adbb6499af"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_116.bin",
+      "bytes": 27195,
+      "sha256": "f04bcc854bf16a09fdf52a56488b82cbf217c64eb609da31e7e35579913d8094"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_118.bin",
+      "bytes": 27195,
+      "sha256": "459652fb3d7d6dc0fdb54ca79e02e08359d922c9b15dd6b4c77957958de5b5cf"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_120.bin",
+      "bytes": 27195,
+      "sha256": "6ecbdccfe6f21ffb9e1905013fe628865303caf9a34c48fd2e5b719491070394"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_122.bin",
+      "bytes": 27195,
+      "sha256": "4995430e43d5a334ce489604bc3c98c86a4adcaad12e151d4efcb84ec879e38c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_124.bin",
+      "bytes": 27195,
+      "sha256": "3a623155e0d95688e62ccc25f502579687d3c18fbd7bec3afd97186a66f3c899"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_126.bin",
+      "bytes": 27195,
+      "sha256": "7940203705435d142c063e33ef3db38d6ca53b3135d7fbe278599691babb9787"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_128.bin",
+      "bytes": 27195,
+      "sha256": "c5f189d4e5a32397f49d9199515f4fbd3ef9a5f77c32a95f873be66981607558"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_130.bin",
+      "bytes": 27195,
+      "sha256": "4dd3f14604a0225dda4bcd3d5de3406c4cfed2ca2040231bf41c4252e2925b5b"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_132.bin",
+      "bytes": 27195,
+      "sha256": "ac798c6b68f2aa0f793cb00cffe8fdc8155beb0a260b230f948a5177c2d9f1c2"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_134.bin",
+      "bytes": 27195,
+      "sha256": "a1fd0e2bac3f9d7a182102caf749b76d0187fea67c1c0edac2981b8bdde05c60"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_136.bin",
+      "bytes": 27195,
+      "sha256": "c4b3d4e1dac0083f5f3911f23e089f3fbd9d61cd88f254c19ac912cb7458130b"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_138.bin",
+      "bytes": 27195,
+      "sha256": "873f32cc1cf4be91dcccff2f8467ca80a7b2713a9d1cc53a5592a42fbe2e4a99"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_140.bin",
+      "bytes": 27195,
+      "sha256": "2a36b3878647277bc184f65a84cc18e3ae7fae6057a7d6e7c73bbb3189943947"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_142.bin",
+      "bytes": 27195,
+      "sha256": "1da5dafbeea81c2fe9ed4e4328014310095adac328bb3226383912d979bded71"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_144.bin",
+      "bytes": 27195,
+      "sha256": "6a27f5041f4412e13c063908867ad12cd7fbdc5391465c14c08a7c94564535d8"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_146.bin",
+      "bytes": 27195,
+      "sha256": "b421a766a1bb4ad1d42225d7c9e15b394cbaea89b6827a04f4b7fb369bc6138c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_148.bin",
+      "bytes": 27195,
+      "sha256": "ece5b84bb07f63d121d0ea82bae4e99de23b39ac8449582f15beae4dffac828c"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_150.bin",
+      "bytes": 27195,
+      "sha256": "bae939b76a6d4b1f863d7ceeca03a2dc4c70edf1e25a4c3f75f03d4746c40817"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_152.bin",
+      "bytes": 27195,
+      "sha256": "065854daac3f449fa6704cf323b9c5be4337bf97fd9bac6858c466d345cc4e72"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_154.bin",
+      "bytes": 27195,
+      "sha256": "a9458d489bf518b5c09f2bcec6c3b8621365442a1bf248f133edf36cd8c06ee9"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_156.bin",
+      "bytes": 27195,
+      "sha256": "d53f5b21cd654042e87f550ab9a028fe3688a95faa47ec3106c20bea97a582f1"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_158.bin",
+      "bytes": 27195,
+      "sha256": "a408f5389d97f51e63f52d9a4f8246424c97fb65d7f652bc288917632592f78b"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_160.bin",
+      "bytes": 27195,
+      "sha256": "cdc960f862fce17427dc5c8c619a659af1082c101b52545853a5405e599c06fb"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_162.bin",
+      "bytes": 27195,
+      "sha256": "750733cc1cf8854df73b27e13c13e701bb9f40575e0ecf24e49fb17974ab2b0b"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_164.bin",
+      "bytes": 27195,
+      "sha256": "5f656469573578680cbe577fd401cd009f97d09e3dff6904f33260252af7986e"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_166.bin",
+      "bytes": 27195,
+      "sha256": "bae9883bf0f2cf99021c0976eea5f926293d3211ff0e68c73c604c26cbf3b2b8"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_168.bin",
+      "bytes": 27195,
+      "sha256": "ec61f7b30b9c4b795a54e2803a5167f89f3cc11656383647fa3c9f78bd080548"
+    },
+    {
+      "path": "fire_playback/table_high/thermal_170.bin",
+      "bytes": 27195,
+      "sha256": "62b706513476b0e3291062fb33c7ed42e8b06a9da19fbda04ed4b97d3783c35e"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/frames_000.bin",
+      "bytes": 1037696,
+      "sha256": "acb66fe0e8b0f93699b00691d9326e16e737491813b431875f753b9ca6d50c4c"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/frames_001.bin",
+      "bytes": 1037696,
+      "sha256": "c0817bdd22425ca15afa8c18efc848fecf770a931d5ef9953371225d784d1a37"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/frames_002.bin",
+      "bytes": 1037696,
+      "sha256": "61489655be753a94a72478359a451c8a546efafb17cb08bf50f9fc74210dcaf0"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/frames_003.bin",
+      "bytes": 1037696,
+      "sha256": "5784b74f52040192b461d7fa034cb0a885a88b1741a7db2a5a1e4c8465afc742"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/metadata.json",
+      "bytes": 5173,
+      "sha256": "e2b8af15980cfcd8b2d4af48f5c18c8469328f95491c7e2a8cd52744c64d7f45"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal.json",
+      "bytes": 2948,
+      "sha256": "d87362c8f151c8b9b8ecc2b3c0f0efb1144f35fcbcbe7558aeac36bb59df390a"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_028.bin",
+      "bytes": 27888,
+      "sha256": "5822ef779ee339442224ab59668bb508cb572a2a2acd2ed3f3f230759e72f439"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_038.bin",
+      "bytes": 27888,
+      "sha256": "1edf645a3b3c33d1ba6018902d12f9147fdd9f0aae2ddc1d33d3bceffb27c96f"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_046.bin",
+      "bytes": 27888,
+      "sha256": "21eb863f698aae28ebe4e09ef1721e2d9857efdae5e7e92253c37a40f5ae29e0"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_056.bin",
+      "bytes": 27888,
+      "sha256": "22b753a58442c22f771bae5e1132a3c8f39da7f31e44ac1cdd99ac773900348b"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_066.bin",
+      "bytes": 27888,
+      "sha256": "744ef91857580d6fd216af7a614719047cde5091a8d1bf1638b21759d25ee358"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_076.bin",
+      "bytes": 27888,
+      "sha256": "afa5390fdbb25ebd690339afb013fe104e43363960d081d40b8d6b6f9e44e65d"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_084.bin",
+      "bytes": 27888,
+      "sha256": "4c169da965877235704a216735b147ce5f7625b66d4233654acae668ef9d266b"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_094.bin",
+      "bytes": 27888,
+      "sha256": "f31eb0c11e3b2dd8460af4af0bec72ba323e8094907a7003c0c79f8c28b9f502"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_104.bin",
+      "bytes": 27888,
+      "sha256": "54b11f8ee6694996156b981e80423a4bf9da46becae8e98cec642d2e81ec0398"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_114.bin",
+      "bytes": 27888,
+      "sha256": "6674d812504ad326675f4b9fad66b1343c0a8ece1e02d2948d2a0805743a4c3c"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_122.bin",
+      "bytes": 27888,
+      "sha256": "4222a3a388cb832624c1ea1d11e94937af1b0c0b96cc6565fc59c7691e88045e"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_132.bin",
+      "bytes": 27888,
+      "sha256": "1c63299319b380bbca643c54d3e1a57f0ff6291c3b747aa36a95c1af46bf37a6"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_142.bin",
+      "bytes": 27888,
+      "sha256": "245df0126c68aef50f16c648ee8d1c7ac75654106a3bc6e656ff20fac8759e28"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_152.bin",
+      "bytes": 27888,
+      "sha256": "32b5876155dd6b0aa867785e1f00e87a64c2e2891aa8d769651991210d2e8732"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_160.bin",
+      "bytes": 27888,
+      "sha256": "8f1a7967bf5677e970915c5df51f7b0173fc1861d14ba75fa5100447af819db5"
+    },
+    {
+      "path": "fire_playback_room/sofa_high/thermal_170.bin",
+      "bytes": 27888,
+      "sha256": "d65a667835a5c45ade17682a6906fdeb3a811bbc244d6688c739a50f82e45d26"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/frames_000.bin",
+      "bytes": 3993600,
+      "sha256": "cbad382d175975ef37cea35bff05bca43c8d9a8e5f81cdc315b09658460d8bd8"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/frames_001.bin",
+      "bytes": 3993600,
+      "sha256": "ca40b307ebe95a5fe9d1fdf4f7165ecf625076157215c199be740af611588e33"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/frames_002.bin",
+      "bytes": 3993600,
+      "sha256": "a210fa2abc501620e4de63a18c7a518d356607fd8ab3cad981a9262d74df7514"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/frames_003.bin",
+      "bytes": 3993600,
+      "sha256": "942655f03c762f4b3f0dc08424bb15380fe7caa9bc66b2cb1573f74fced131c4"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/metadata.json",
+      "bytes": 5219,
+      "sha256": "b76fde7e71940935af73305121e62325710f0082d166b7e55c2a929fdbd0d602"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal.json",
+      "bytes": 2950,
+      "sha256": "9f45a12ffc6e39dd3e47398da2efeeedaa3401aeb55beabadcc933c7edf012f7"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_028.bin",
+      "bytes": 53820,
+      "sha256": "a057d2bf175e6076ab08cdedc558f3f8c61f2c517a58cadf8183a055ff631250"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_038.bin",
+      "bytes": 53820,
+      "sha256": "1c2753d0b2dbd62bea9ec32b37df03e1b216303b1657d164d35aadb917ef9ec8"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_046.bin",
+      "bytes": 53820,
+      "sha256": "c17d3be21527a6904b37f7e54083b5bc77a3741fb9a6ed92fbc938bdf62c8878"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_056.bin",
+      "bytes": 53820,
+      "sha256": "1165d7b40d1e796c987c4ed590ac4bd40c351b6c9f9957504c16cc5f73dc1a5b"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_066.bin",
+      "bytes": 53820,
+      "sha256": "5dd62513431451c33433a0b45c36473f7eaa2e343399c46f9b78e8564eb0ede9"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_076.bin",
+      "bytes": 53820,
+      "sha256": "44544ea15c4ee43504730cd236f2f19f0f50dd0196bedf3656c257d8da99d5c1"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_084.bin",
+      "bytes": 53820,
+      "sha256": "a1ab672959afd70efd50c49f6dd8992ceb5cf6ad599ecbb0b9181b95aed7a7b3"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_094.bin",
+      "bytes": 53820,
+      "sha256": "f1dce539003cb7593bfd9c1a777b6c1f88ad09586b89cfa43341de484f83aab6"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_104.bin",
+      "bytes": 53820,
+      "sha256": "104961823455f19f2154f8dfd118a87edc4db910254cec6a8a0f425c86a9f27c"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_114.bin",
+      "bytes": 53820,
+      "sha256": "0a2edbc20ec4e140f3a2fee0c79f9e841f6d5a7f2172b3f1d1ce5b0310964fe1"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_122.bin",
+      "bytes": 53820,
+      "sha256": "3b3f59f1a68fa54afeb3cd6e1517e659684bd37e1cb6205a85092be336134dd1"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_132.bin",
+      "bytes": 53820,
+      "sha256": "74979ee1dd7c00c1a9474567843f11e998cf8e3f675cb83f8e2961d5028e45ad"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_142.bin",
+      "bytes": 53820,
+      "sha256": "633b70529eb467a1b5ee7db6f6069e083b86480ee88e0575bc779c91af95129a"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_152.bin",
+      "bytes": 53820,
+      "sha256": "998e883c339438b4295ae4a48e1d8b7966e8638cfeaa5cfa4b7058ac95023a1c"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_160.bin",
+      "bytes": 53820,
+      "sha256": "fcb85621332ec72d12425ad99bcadfa97296069d4c54115dd1c55cfce1aefc4f"
+    },
+    {
+      "path": "fire_playback_room/curtain_high/thermal_170.bin",
+      "bytes": 53820,
+      "sha256": "575de83689999603df828d7cc09fb4d885bd264ce51ec990a955e8eff0da4b7d"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/frames_000.bin",
+      "bytes": 4200928,
+      "sha256": "c18395a02a98eb77421e680a1ccf419c335816e87ebc219d5ec5fa651d67a066"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/frames_001.bin",
+      "bytes": 4200928,
+      "sha256": "c7191a62ce9151701fa4c77ee32e7d59c68c7218ad6bde190c274852f0567213"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/frames_002.bin",
+      "bytes": 4200928,
+      "sha256": "e6abb26051cb845a8b32d0922b239fe8c9efe622f2951ec72db7401414a54aea"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/frames_003.bin",
+      "bytes": 4200928,
+      "sha256": "edfe8bb3ff3bcb3c3e8df997154c1ac4ac16fe2dcb34d703ec6fd9ac019a9e18"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/metadata.json",
+      "bytes": 5578,
+      "sha256": "d2e001488588bc8d8613a8759b3c49972c7430e80f28345193feb25c801b04eb"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/proxy-smooth.bin",
+      "bytes": 7519464,
+      "sha256": "8ae4ee86b16960ad2184ab748157538e9f45ef8a8e3ea7f9079009f9e14b39fb"
+    },
+    {
+      "path": "fire_playback_v2/table_high_test/proxy.bin",
+      "bytes": 9211248,
+      "sha256": "75570a5e53f2dc21e7d618ae95060feaceffbeb2acc20c61d2cc9b8ba0ec3b5f"
+    }
+  ]
+}

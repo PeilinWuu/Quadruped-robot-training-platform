@@ -4,6 +4,9 @@
   "version": "0.1.1",
   "type": "module",
   "scripts": {
+    "assets:pack": "node scripts/collaboration-assets.mjs pack",
+    "assets:setup": "node scripts/collaboration-assets.mjs setup",
+    "assets:verify": "node scripts/collaboration-assets.mjs verify",
     "setup:mujoco": "node scripts/fetch-mujoco.mjs",
     "setup:mpc": "node scripts/fetch-mpc-dependencies.mjs",
     "setup:go2": "node scripts/fetch-go2-menagerie.mjs",

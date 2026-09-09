@@ -4,6 +4,8 @@
 
 ## 使用与共同开发
 
+- [受邀共同开发者入口](COLLABORATOR_QUICKSTART.md)：一个共享资产包、一条导入命令，运行完整展示。
+
 - [快速开始](GETTING_STARTED.md)：环境、桌面/浏览器启动、构建与原生模块。
 - [数据与资源](DATA_ASSETS.md)：外部数据、目录结构、变量和许可证。
 - [贡献指南](../CONTRIBUTING.md)：分支、代码约定、检查和 PR。
