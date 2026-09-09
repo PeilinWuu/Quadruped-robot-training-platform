@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "bytes": 71305291,
+  "sha256": "98470eb73ddedc64cbd50966a5acdcf59084494984fbaf3ebeedb17ea6717954",
+  "files": [
+    {
+      "path": "3dgs_explicit.ply",
+      "bytes": 218789289,
+      "sha256": "aea237214dfd4096734bb296824fa5e30ade3a33256378aa03c4f6eca65cab7d"
+    },
+    {
+      "path": "fierygs/camera.json",
+      "bytes": 362,
+      "sha256": "16fdd90175190c3138b22edcec7665e145f32ada92c5438cf02d0ad22e5a8b9a"
+    },
+    {
+      "path": "fierygs/fire_camera.json",
+      "bytes": 370,
+      "sha256": "4c396b3c5198c4b16465fc6747cf95c9f07c3b1ec549e50d7b282d91babe6a4d"
+    },
+    {
+      "path": "fierygs/ply_diagnostics.json",
+      "bytes": 4951,
+      "sha256": "eb3604f898d211c64dd4a1764a2d69ca9d2f0bcfc30c15086c6b8149af82ab11"
+    },
+    {
+      "path": "fierygs/preprocess_diagnostics.json",
+      "bytes": 1194,
+      "sha256": "f045b1ade14b57438a106f20d056a798136ae60c80ba473a959df1440a659436"
+    },
+    {
+      "path": "fire_roi.json",
+      "bytes": 712,
+      "sha256": "95ba6318becabd4972ad55bd1831a4ee25bf42b5b9ca47631574974fb43a0e48"
+    },
+    {
+      "path": "fire_scenarios/office_table_fire/voxel/indices_pts_in_grids.pth",
+      "bytes": 7283741,
+      "sha256": "129cfe5f81fc519cffb4ba9f8d5d2b07d0650502ff9d4f68c18924a76eed6e48"
+    },
+    {
+      "path": "fire_scenarios/office_table_fire/voxel/mask_pts_in_grids.pth",
+      "bytes": 928270,
+      "sha256": "1355bd648c7dd9d9332eba68045c6e2a7614fbebaed1edb2bfcf5d6d1f9d4e6d"
+    },
+    {
+      "path": "fire_scenarios/office_table_fire/voxel/material_grid.npy",
+      "bytes": 7264280,
+      "sha256": "35a78a4f22a0e5460da2866682de5d4ebfc19c4fee984012a82272ca23b3ddc9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_curtain_high/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_curtain_high/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "9d76c9bf522132635f3c46a89af1cddc3f4e3a3cbda5ff4b795b3b2dba3fa02c"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_curtain_low/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_curtain_low/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "c0756a16cdedfd7ab9bddcabf96b5d69118e31c47d9c1df12f213a608a497294"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_curtain_medium/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_curtain_medium/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "ef0407a1dbacb3eeb12acf499cf784c9c0bafa596627e1e82f121f51cb1f26d4"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_sofa_high/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_sofa_high/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "2a0eabb4cfdd63d7b5dee411a1138053830b8b51a5c8717458ddc22d6de1d8f5"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_sofa_low/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_sofa_low/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "4a77b3e6a1907025628e68e43ec3b8727e94b75afc8ce9732865b5c800ef3fa9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_sofa_medium/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_sofa_medium/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "c31e66ae39f1833ed6ff70574911bbd8800f4e40443bbf0a112098c7d947e252"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_table_high/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_table_high/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "235034b2d19f25f199be5be78de70a7410ab88192693cb7671b5fb53215a16b5"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_table_low/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_table_low/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "4802bb1207436cf487dea1ba907abba6d144a2847109df14c8c2109322ccb1a6"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_table_medium/available_fuel_grid.npy",
+      "bytes": 14528432,
+      "sha256": "8e4e3724d5aec24820cf9434cfb7a8e9837ca95aad5bda422c7656179786a2d9"
+    },
+    {
+      "path": "fire_scenarios_batch/validation/office_table_medium/ignition_voxel_mask.npy",
+      "bytes": 3632204,
+      "sha256": "cf143d0bac0a888b0a9947f1e23b1ad39ed17fb7f3560308ec081dac89fe1778"
+    },
+    {
+      "path": "labels.json",
+      "bytes": 342536,
+      "sha256": "5f3623c6206298b02fbb9269a9db2062688f012e5459b6af02f9926f16edb82b"
+    },
+    {
+      "path": "occupancy.json",
+      "bytes": 288,
+      "sha256": "fb9dd4d2def24dafbfea705ce6f4541d77640123fb0c60e16e6056b61f1a135d"
+    },
+    {
+      "path": "semantic_bridge_all/objects_material_catalog.json",
+      "bytes": 893229,
+      "sha256": "f3bc37466cc30223aa44fbead59ee2a9e501fd3662a9544b86e14a690cc87100"
+    },
+    {
+      "path": "structure.json",
+      "bytes": 28040,
+      "sha256": "b5969fd135a270f9d772454eac18a89df02ed8efefc817f355745ff45f1d97db"
+    },
+    {
+      "path": "viewer_settings.json",
+      "bytes": 763,
+      "sha256": "39bda18d8d0ac2e6c58678e0af9e9468389ee54ae7ceb5b43b15367dfb164a47"
+    }
+  ]
+}

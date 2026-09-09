@@ -8,6 +8,8 @@
 
 **受邀共同开发者请先看 [完整展示上手入口](docs/COLLABORATOR_QUICKSTART.md)**：从 [夸克网盘](https://pan.quark.cn/s/4a16f7a62ef6) 下载共享资产包，执行 `npm run assets:setup -- <本地资产包路径>`，即可校验并配置全部展示数据。
 
+**参与火灾求解、场景处理或原生物理研究，请使用 [后端研究入口](research/README.md)**，并下载独立的 [研究输入包（夸克网盘）](https://pan.quark.cn/s/083d85b8dd33)。入口提供定制 FieryGS 源码恢复、可迁移路径的最小求解命令和原生测试流程。展示包不包含这些研究输入；从照片重建 office_01 的原始材料目前仍缺失。
+
 ## 快速启动桌面应用
 
 Windows x64，安装 Node.js 24、Rust MSVC 工具链、Visual Studio 2022 C++ Build Tools 和 WebView2 后，在 PowerShell 执行：

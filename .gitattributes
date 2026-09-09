@@ -1,3 +1,6 @@
 # These resources are verified against byte-for-byte SHA-256 locks.
 # Preserve the stored bytes even when Windows enables core.autocrlf.
 /src-tauri/resources/simulation/models/unitree-go2-menagerie/** -text
+# Preserve historical patch whitespace as well as its checksum.
+/research/fierygs/local-production.patch -text -whitespace
+/research/fierygs/overlay/** -text
