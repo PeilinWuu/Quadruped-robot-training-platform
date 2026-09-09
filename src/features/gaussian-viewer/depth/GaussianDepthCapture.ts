@@ -19,6 +19,12 @@ export class GaussianDepthCapture {
   private generation = 0
   private lastCapture = 0
   private sequence = 0
+  active = false
+  gpuSequence = 0
+  gpuCameraWorld: number[] = []
+  get texture(): Texture { return (this.picker as unknown as DepthPickerBuffers).depthBuffer }
+  get status(): 'ready' | 'off' | 'unavailable' { return this.active ? 'ready' : this.failed ? 'unavailable' : 'off' }
+  private failed = false
   frame: GaussianDepthFrame | null = null
   constructor(app: Application, camera: Entity, layer: Layer) {
     this.app = app; this.camera = camera; this.layer = layer
@@ -36,8 +42,26 @@ export class GaussianDepthCapture {
       }
     }
   }
+  renderGpu(enabled: boolean, fullResolution = true): void {
+    this.active = false
+    if (this.disposed || !enabled) return
+    try {
+      const width = fullResolution ? this.app.graphicsDevice.width : Math.min(640, this.app.graphicsDevice.width)
+      const height = Math.max(1, Math.round(width * this.app.graphicsDevice.height / this.app.graphicsDevice.width))
+      this.app.root.syncHierarchy()
+      this.app.scene.gsplat.alphaClip = gsDepthPreview.alphaClip
+      this.picker.resize(width, height)
+      this.picker.prepare(this.camera.camera!, this.app.scene, [this.layer])
+      if (!this.texture) throw new Error('GS_DEPTH_BUFFER_UNAVAILABLE')
+      this.gpuCameraWorld = Array.from(this.camera.getWorldTransform().data)
+      this.active = true; this.failed = false; this.gpuSequence++
+    } catch (error) {
+      this.failed = true
+      gsDepthPreview.publish(null, error instanceof Error ? error.message : 'GS_DEPTH_FAILED')
+    }
+  }
   update(): void {
-    if (this.busy || this.disposed || !gsDepthPreview.enabled || performance.now() - this.lastCapture < 200) return
+    if (this.busy || this.disposed || !this.active || !gsDepthPreview.enabled || performance.now() - this.lastCapture < 200) return
     this.lastCapture = performance.now()
     void this.capture()
   }
@@ -45,20 +69,21 @@ export class GaussianDepthCapture {
     this.busy = true
     const generation = this.generation
     const camera = this.camera.camera!
-    const width = Math.min(640, this.app.graphicsDevice.width)
-    const height = Math.max(1, Math.round(width * this.app.graphicsDevice.height / this.app.graphicsDevice.width))
+    const buffers = this.picker as unknown as DepthPickerBuffers
+    const width = buffers.depthBuffer.width, height = buffers.depthBuffer.height
     const near = camera.nearClip, far = camera.farClip
     const timestampMs = performance.now()
     try {
-      this.app.scene.gsplat.alphaClip = gsDepthPreview.alphaClip
-      this.picker.resize(width, height)
-      this.picker.prepare(camera, this.app.scene, [this.layer])
-      const buffers = this.picker as unknown as DepthPickerBuffers
-      if (!buffers.depthBuffer || !buffers.renderTargetDepth) throw new Error('GS_DEPTH_BUFFER_UNAVAILABLE')
       const bytes = await buffers.depthBuffer.read(0, 0, width, height, { renderTarget: buffers.renderTargetDepth, immediate: true })
       if (this.disposed || generation !== this.generation || !gsDepthPreview.enabled) return
       const values = decodeGsDepth(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), width, height, near, far)
-      this.frame = { width, height, values, sequence: ++this.sequence, timestampMs }
+      const previewWidth = Math.min(640, width)
+      const previewHeight = Math.max(1, Math.round(previewWidth * height / width))
+      const preview = new Float32Array(previewWidth * previewHeight)
+      for (let y = 0; y < previewHeight; y++) for (let x = 0; x < previewWidth; x++) {
+        preview[y * previewWidth + x] = values[Math.min(height - 1, Math.floor((y + .5) * height / previewHeight)) * width + Math.min(width - 1, Math.floor((x + .5) * width / previewWidth))]
+      }
+      this.frame = { width: previewWidth, height: previewHeight, values: preview, sequence: ++this.sequence, timestampMs }
       gsDepthPreview.publish(this.frame)
     } catch (error) {
       if (!this.disposed && generation === this.generation) gsDepthPreview.publish(null, error instanceof Error ? error.message : 'GS_DEPTH_FAILED')
@@ -67,6 +92,6 @@ export class GaussianDepthCapture {
       if (this.disposed) this.picker.destroy()
     }
   }
-  clear(): void { this.generation++; this.frame = null; gsDepthPreview.publish(null) }
+  clear(): void { this.active = false; this.generation++; this.frame = null; gsDepthPreview.publish(null) }
   dispose(): void { this.disposed = true; this.clear(); if (!this.busy) this.picker.destroy() }
 }

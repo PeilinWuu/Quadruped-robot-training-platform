@@ -9,6 +9,7 @@ import {
   GSplatResourceBase,
   Picker,
   Layer,
+  RenderPass,
   Quat,
   RESOLUTION_FIXED,
   Vec3,
@@ -113,6 +114,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private environmentOverlay: EnvironmentOverlayRuntime | null = null
   private removeFireFocusListener: (() => void) | null = null
   private fireVolume: FireVolumeRuntime | null = null
+  private depthPass: RenderPass | null = null
   private depthCapture: GaussianDepthCapture | null = null
   private gsLayer: Layer | null = null
   private picker: Picker | null = null
@@ -197,7 +199,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       this.robotOverlay = new RobotOverlayRuntime(app)
       this.picker = new Picker(app, 1, 1, true)
       this.environmentOverlay = new EnvironmentOverlayRuntime(app)
-      this.fireVolume = new FireVolumeRuntime(app, camera)
+      this.fireVolume = new FireVolumeRuntime(app, camera, this.depthCapture)
       this.removeFireFocusListener = firePlaybackService.onFocus((metadata) => {
         const lo = metadata.grid.worldLower; const hi = metadata.grid.worldUpper
         const center = new Vec3((lo[0]+hi[0])*.5, (lo[2]+hi[2])*.5, -(lo[1]+hi[1])*.5)
@@ -217,6 +219,10 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
       canvas.addEventListener('webglcontextlost', this.handleContextLost)
       canvas.addEventListener('webglcontextrestored', this.handleContextRestored)
+      this.depthPass = new RenderPass(app.graphicsDevice)
+      this.depthPass.name = 'Current-frame Gaussian depth'
+      this.depthPass.execute = this.handlePreRender
+      camera.camera!.camera.beforePasses.push(this.depthPass)
       app.on('frameend', this.handleFrameEnd)
       app.on('update', this.handleUpdate)
       const gsplatSystem = app.systems.gsplat
@@ -562,6 +568,11 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost)
     this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored)
     this.canvas.removeEventListener('pointerdown', this.handleGroundPointer, { capture: true })
+    if (this.depthPass && this.cameraEntity?.camera) {
+      const passes = this.cameraEntity.camera.camera.beforePasses
+      const index = passes.indexOf(this.depthPass); if (index >= 0) passes.splice(index, 1)
+      this.depthPass.destroy(); this.depthPass = null
+    }
     app?.off('frameend', this.handleFrameEnd)
     app?.off('update', this.handleUpdate)
     this.gsplatSystem?.off('frame:request', this.handleFrameRequest)
@@ -836,6 +847,15 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   private readonly handleFrameRequest = (): void => {
     if (this.activeRendering) this.requestRender()
+  }
+
+  private readonly handlePreRender = (): void => {
+    if (!this.activeRendering || this.status.contextLost) return
+    const state = firePlaybackService.getState()
+    const fireVisible = firePlaybackService.quality !== 'off' && ['ready', 'playing', 'paused'].includes(state.phase)
+    const needsGpu = fireVisible && (firePlaybackService.depthOcclusion || (state.sceneMode === 'room' && firePlaybackService.atmosphereEnabled))
+    this.depthCapture?.renderGpu(this.status.sceneLoaded === true && (needsGpu || gsDepthPreview.enabled), needsGpu)
+    this.fireVolume?.syncDepth()
   }
 
   private readonly handleFrameEnd = (): void => {

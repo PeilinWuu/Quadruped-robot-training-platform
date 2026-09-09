@@ -1,6 +1,8 @@
+import { GS_DEPTH_GLSL } from '../depth/gsDepthShader'
 // Native linear emission integration; frozen post-integration legacy clipping.
 export const FIRE_VOLUME_V2_FRAGMENT = `
   precision highp float;
+  ${GS_DEPTH_GLSL}
   varying vec3 vWorldPosition;
   uniform vec3 view_position;
   uniform vec3 uViewerLower;
@@ -75,8 +77,7 @@ export const FIRE_VOLUME_V2_FRAGMENT = `
     float entry = max(hit.x, 0.0);
     float exitDistance = hit.y;
     if (uDepthEnabled > 0.5) {
-      vec3 packed = texture2D(uProxyDepth, gl_FragCoord.xy / uViewport).rgb;
-      float depth = dot(packed, vec3(1.0, 1.0/255.0, 1.0/65025.0)) * uFarClip;
+      float depth = gsDepthMeters(texture2D(uProxyDepth, gl_FragCoord.xy / uViewport), uFarClip);
       float viewRayZ = -(matrix_view * vec4(direction, 0.0)).z;
       exitDistance = min(exitDistance, depth / max(viewRayZ, 1e-5) - 0.025);
     }

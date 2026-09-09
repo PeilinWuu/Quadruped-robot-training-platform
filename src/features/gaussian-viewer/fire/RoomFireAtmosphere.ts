@@ -1,15 +1,16 @@
 import { Application, BLEND_PREMULTIPLIED, CULLFACE_FRONT, Entity, Layer, SEMANTIC_POSITION, ShaderMaterial } from 'playcanvas'
 import type { FirePlaybackService } from '../../../services/fire-playback/firePlaybackService'
-import { FireProxyDepth } from './FireProxyDepth'
+import type { GaussianDepthCapture } from '../depth/GaussianDepthCapture'
+import { GS_DEPTH_GLSL } from '../depth/gsDepthShader'
 
 // Display-only office atmosphere. Never feeds simulation, collision or telemetry.
 export class RoomFireAtmosphere {
   private readonly entity: Entity
   private readonly material: ShaderMaterial
-  private readonly depth: FireProxyDepth
+  private readonly depth: GaussianDepthCapture
   private readonly app: Application
   private readonly camera: Entity
-  constructor(app: Application, camera: Entity, layer: Layer, depth: FireProxyDepth) {
+  constructor(app: Application, camera: Entity, layer: Layer, depth: GaussianDepthCapture) {
     this.app = app; this.camera = camera
     this.depth = depth
     this.material = new ShaderMaterial({
@@ -17,6 +18,7 @@ export class RoomFireAtmosphere {
       vertexGLSL: `attribute vec3 aPosition; uniform mat4 matrix_model; uniform mat4 matrix_viewProjection;
         varying vec3 vWorld; void main(){vec4 w=matrix_model*vec4(aPosition,1.);vWorld=w.xyz;gl_Position=matrix_viewProjection*w;}`,
       fragmentGLSL: `precision highp float;
+        ${GS_DEPTH_GLSL}
         varying vec3 vWorld; uniform vec3 view_position; uniform mat4 matrix_view;
         uniform float uTime; uniform float uFarClip; uniform vec2 uViewport;
         uniform sampler2D uDepth; uniform vec3 uSources;
@@ -33,7 +35,7 @@ export class RoomFireAtmosphere {
           vec3 safe=sign(rd+vec3(1e-8))*max(abs(rd),vec3(1e-6));
           vec3 a=(vec3(1.3,.65,-2.65)-view_position)/safe,b=(vec3(10.,3.35,6.)-view_position)/safe;
           vec3 lo=min(a,b),hi=max(a,b);float start=max(0.,max(lo.x,max(lo.y,lo.z))),end=min(hi.x,min(hi.y,hi.z));
-          float depth=dot(texture2D(uDepth,gl_FragCoord.xy/uViewport).rgb,vec3(1.,1./255.,1./65025.))*uFarClip;
+          float depth=gsDepthMeters(texture2D(uDepth,gl_FragCoord.xy/uViewport),uFarClip);
           end=min(end,depth/max(-(matrix_view*vec4(rd,0.)).z,1e-5)-.05);
           if(end<=start)discard;
           float stepSize=(end-start)/32.,trans=1.;vec3 color=vec3(0.);
@@ -78,6 +80,8 @@ export class RoomFireAtmosphere {
     if (!this.entity.enabled) return
     const available = (s: FirePlaybackService | undefined) => s && ['ready', 'playing', 'paused'].includes(s.getState().phase) ? 1 : 0
     this.material.setParameter('uSources', [available(service), available(service.getCompanions().get('sofa_high')), available(service.getCompanions().get('curtain_high'))])
+    this.material.setParameter('uDepth', this.depth.texture)
+    this.material.setParameter('uNearClip', this.camera.camera!.nearClip)
     this.material.setParameter('uTime', service.presentationSeconds)
     this.material.setParameter('uViewport', [this.app.graphicsDevice.width, this.app.graphicsDevice.height])
     this.material.setParameter('uFarClip', this.camera.camera!.farClip)

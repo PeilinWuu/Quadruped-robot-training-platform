@@ -93,8 +93,8 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
           const quality = event.target.value as FireQuality; setFireQuality(quality); firePlaybackService.setQuality(quality)
         }}><option value="high">High 128</option><option value="medium">Medium 96</option><option value="low">Low 64</option><option value="off">Off</option></select>
         <label title="只降低火焰质量"><input type="checkbox" defaultChecked onChange={(event) => { firePlaybackService.autoQuality = event.target.checked }}/>自动</label>
-        <label title="根据场景深度截断火焰，取消可对照原效果"><input type="checkbox" defaultChecked={firePlaybackService.depthOcclusion} onChange={(event) => { firePlaybackService.depthOcclusion = event.target.checked }}/>遮挡</label>
-        {depthStatus === 'unavailable' && <small role="alert">场景遮挡加载失败，当前未遮挡</small>}
+        <label title="根据当前帧 GS 深度截断火焰，取消可对照原效果"><input type="checkbox" defaultChecked={firePlaybackService.depthOcclusion} onChange={(event) => { firePlaybackService.depthOcclusion = event.target.checked }}/>遮挡</label>
+        {depthStatus === 'unavailable' && <small role="alert">GS 深度不可用，当前未遮挡</small>}
         <span className={`fire-playback-status fire-playback-status--${fire.phase}`}>{fire.sceneMode === 'room' ? '桌子＋沙发＋窗帘' : '桌面火焰'} · {fire.stage ?? fire.phase}</span>
         {fire.phase === 'idle' || fire.phase === 'error'
           ? <button type="button" onClick={loadFire}>{fire.phase === 'error' ? '重试火灾资产' : '加载火灾'}</button>

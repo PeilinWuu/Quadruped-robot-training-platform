@@ -16,7 +16,8 @@ import {
   Vec3,
 } from 'playcanvas'
 import { FIRE_VOLUME_V2_FRAGMENT } from './fireVolumeV2Shader'
-import { FireProxyDepth } from './FireProxyDepth'
+import type { GaussianDepthCapture } from '../depth/GaussianDepthCapture'
+import { GS_DEPTH_GLSL } from '../depth/gsDepthShader'
 import { firePlaybackService, FirePlaybackService } from '../../../services/fire-playback/firePlaybackService'
 import type {
   FirePlaybackMetadata,
@@ -39,6 +40,7 @@ const VERTEX_SHADER = `
 // frozen legacy-clipped display profile and never runs or alters fire physics.
 const FRAGMENT_SHADER = `
   precision highp float;
+  ${GS_DEPTH_GLSL}
   varying vec3 vWorldPosition;
   uniform vec3 view_position;
   uniform vec3 uViewerLower;
@@ -123,8 +125,7 @@ const FRAGMENT_SHADER = `
     float entry = max(hit.x, 0.0);
     float exitDistance = hit.y;
     if (uDepthEnabled > 0.5) {
-      vec3 packed = texture2D(uProxyDepth, gl_FragCoord.xy / uViewport).rgb;
-      float depth = dot(packed, vec3(1.0, 1.0/255.0, 1.0/65025.0)) * uFarClip;
+      float depth = gsDepthMeters(texture2D(uProxyDepth, gl_FragCoord.xy / uViewport), uFarClip);
       float viewRayZ = -(matrix_view * vec4(direction, 0.0)).z;
       exitDistance = min(exitDistance, depth / max(viewRayZ, 1e-5) - 0.012);
     }
@@ -217,8 +218,7 @@ export class FireVolumeRuntime {
   private material: ShaderMaterial
   private smoke0: Texture | null = null
   private smoke1: Texture | null = null
-  private emitterDepth: FireProxyDepth | null = null
-  private readonly proxy: FireProxyDepth
+  private readonly proxy: GaussianDepthCapture
   private statsSeconds = 0
   private statsFrames = 0
   private slowWindows = 0
@@ -231,8 +231,8 @@ export class FireVolumeRuntime {
   private disposed = false
   private readonly removeSampleListener: () => void
 
-  constructor(app: Application, camera: Entity, service = firePlaybackService, sharedLayer?: Layer, sharedDepth?: FireProxyDepth) {
-    this.proxy = sharedDepth ?? new FireProxyDepth(app, camera)
+  constructor(app: Application, camera: Entity, depth: GaussianDepthCapture, service = firePlaybackService, sharedLayer?: Layer) {
+    this.proxy = depth
     this.service = service
     this.ownsLayer = !sharedLayer
     this.app = app
@@ -273,15 +273,9 @@ export class FireVolumeRuntime {
       if (![...this.service.getCompanions().values()].includes(service)) { volume.dispose(); this.companionVolumes.delete(service) }
     }
     for (const service of this.service.getCompanions().values()) {
-      if (!this.companionVolumes.has(service)) this.companionVolumes.set(service, new FireVolumeRuntime(this.app, this.camera, service, this.layer, this.proxy))
+      if (!this.companionVolumes.has(service)) this.companionVolumes.set(service, new FireVolumeRuntime(this.app, this.camera, this.proxy, service, this.layer))
     }
     if (advancePlayback) this.service.update(deltaSeconds)
-    if (this.ownsLayer) {
-      const state = this.service.getState()
-      const visible = !this.contextLost && this.service.quality !== 'off' && ['ready', 'playing', 'paused'].includes(state.phase)
-      this.proxy.update(visible && (this.service.depthOcclusion || (state.sceneMode === 'room' && this.service.atmosphereEnabled)))
-      this.service.depthStatus = this.proxy.status
-    }
     for (const volume of this.companionVolumes.values()) volume.update(deltaSeconds, false)
     if (this.companionVolumes.size) {
       // Disjoint scenario volumes share one transparent layer, sorted for the live camera.
@@ -304,8 +298,7 @@ export class FireVolumeRuntime {
     this.material.setParameter('uSteps', service.quality === 'high' ? 128 : service.quality === 'medium' ? 96 : 64)
     this.material.setParameter('uViewport', [this.app.graphicsDevice.width, this.app.graphicsDevice.height])
     this.material.setParameter('uFarClip', this.camera.camera!.farClip)
-    this.emitterDepth?.update(service.depthOcclusion && this.entity.enabled)
-    const depth = this.emitterDepth ?? this.proxy
+    const depth = this.proxy
     this.material.setParameter('uProxyDepth', depth.texture)
     this.material.setParameter('uDepthEnabled', service.depthOcclusion && depth.active ? 1 : 0)
     if (deltaSeconds > 0 && deltaSeconds < 1 && !document.hidden) {
@@ -324,6 +317,17 @@ export class FireVolumeRuntime {
     }
   }
 
+  syncDepth(): void {
+    for (const volume of this.companionVolumes.values()) volume.syncDepth()
+    this.service.depthStatus = this.proxy.status
+    this.material.setParameter('uProxyDepth', this.proxy.texture)
+    this.material.setParameter('uDepthEnabled', this.service.depthOcclusion && this.proxy.active ? 1 : 0)
+    this.material.setParameter('uNearClip', this.camera.camera!.nearClip)
+    this.material.setParameter('uFarClip', this.camera.camera!.farClip)
+    this.material.setParameter('uViewport', [this.app.graphicsDevice.width, this.app.graphicsDevice.height])
+    this.atmosphere?.update(this.service, this.contextLost)
+  }
+
   setContextLost(lost: boolean): void {
     for (const volume of this.companionVolumes.values()) volume.setContextLost(lost)
     this.contextLost = lost
@@ -336,8 +340,6 @@ export class FireVolumeRuntime {
     for (const volume of this.companionVolumes.values()) volume.dispose()
     this.companionVolumes.clear()
     this.atmosphere?.dispose(); this.atmosphere = null
-    this.emitterDepth?.dispose(); this.emitterDepth = null
-    if (this.ownsLayer) this.proxy.dispose()
     this.removeSampleListener()
     this.texture0?.destroy(); this.texture1?.destroy()
     this.texture0 = null; this.texture1 = null
@@ -392,8 +394,6 @@ export class FireVolumeRuntime {
     this.material.update()
     for (const instance of this.entity.render!.meshInstances) instance.material = this.material
     previous.destroy()
-    this.emitterDepth?.dispose()
-    this.emitterDepth = metadata.scenarioId === 'curtain_high' ? new FireProxyDepth(this.app, this.camera, true) : null
     this.metadata = metadata
     this.currentIndex = -1; this.nextIndex = -1
     this.texture0 = this.createTexture(metadata, 'FieryGS frame A')
