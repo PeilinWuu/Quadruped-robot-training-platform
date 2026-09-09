@@ -49,5 +49,6 @@ Thumbs.db
 # Local experiments, independent solver checkout and Python bytecode
 /tmp/
 /FieryGS/
+/.cache/research/
 __pycache__/
 *.py[cod]

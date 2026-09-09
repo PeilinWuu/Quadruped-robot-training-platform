@@ -1,0 +1,27 @@
+{
+  "upstream": "https://github.com/PKU-VCL-Geometry/FieryGS.git",
+  "upstreamBase": "f70fbe26d22431c7acd93a745861dd47ba4307d7",
+  "localProductionCommit": "defda1dc4ee8d1feac0e3a9f434d6e3a37ebc4e4",
+  "handoffFiles": [
+    {
+      "path": "research/fierygs/local-production.patch",
+      "sha256": "e255302e216f4d29ce05ca7a129108136c8d48b836a638a24a6565892f223afd"
+    },
+    {
+      "path": "research/fierygs/overlay/adapter/fire_showcase/export_fire_depth_proxy.py",
+      "sha256": "6a8f14c1a655c4d67fcd8a2617da96c1634148c26e38f5f6fb0c96c2cd7b2d47"
+    },
+    {
+      "path": "research/fierygs/overlay/adapter/fire_showcase/export_fire_playback_v2.py",
+      "sha256": "45554c10dff5fb53b5f794b8314984765f1fcb23af3b59d64fd9656e81bd1d83"
+    },
+    {
+      "path": "research/fierygs/overlay/adapter/fire_showcase/export_room_fire_playback.py",
+      "sha256": "f75b6bcb97132b33e7b0336d36380ce1e138a5131912523efeb27cd004ffbecd"
+    },
+    {
+      "path": "research/fierygs/overlay/adapter/fire_showcase/export_smooth_fire_depth.py",
+      "sha256": "843c4c15565c63b8335350bbd8ad757667a55cc46eaa4329e7f102ab6fe29e7f"
+    }
+  ]
+}

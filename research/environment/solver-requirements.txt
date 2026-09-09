@@ -1,0 +1,11 @@
+# Observed working solver subset; install PyTorch CUDA separately.
+numpy==2.0.2
+taichi==1.7.4
+PyYAML==6.0.2
+noise==1.2.2
+matplotlib==3.9.4
+pillow==10.4.0
+plyfile==1.1.3
+imageio==2.37.2
+imageio-ffmpeg==0.6.0
+tqdm==4.70.0
