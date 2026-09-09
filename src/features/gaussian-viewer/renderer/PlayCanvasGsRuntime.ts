@@ -1,6 +1,9 @@
 import { GaussianDepthCapture } from '../depth/GaussianDepthCapture'
 import { gsDepthPreview } from '../depth/gsDepthPreview'
 import { thermalPreview } from '../thermal/thermalPreview'
+import { robotCollisionService } from '../../../services/robot-collision/robotCollisionService'
+import { constrainRobotMovement, constrainRobotTurn, drawCollisionOverlay } from '../robot/RobotCollisionOverlay'
+import { StepDemoRuntime } from '../robot/StepDemoRuntime'
 import {
   Application,
   Asset,
@@ -114,6 +117,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   private freeCameraFov = 45
   private environmentOverlay: EnvironmentOverlayRuntime | null = null
   private removeFireFocusListener: (() => void) | null = null
+  private stepDemo:StepDemoRuntime|null=null
   private fireVolume: FireVolumeRuntime | null = null
   private depthPass: RenderPass | null = null
   private depthCapture: GaussianDepthCapture | null = null
@@ -198,6 +202,15 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
       this.cameraController.reset(this.initialTarget, this.initialDistance)
 
       this.robotOverlay = new RobotOverlayRuntime(app)
+      this.stepDemo=new StepDemoRuntime(app,this.robotOverlay,()=> {
+        this.setRobotFirstPerson(false)
+        const matrix=this.sceneEntity?.getWorldTransform()
+        const position=new Vec3(3.75,1.55,.1),target=new Vec3(3.5,.15,-.45)
+        if(matrix){matrix.transformPoint(position,position);matrix.transformPoint(target,target)}
+        this.cameraController?.framePose(position,target)
+      })
+      robotMotionPlaybackService.movementConstraint = (start,end,yaw) => this.robotOverlay ? constrainRobotMovement(this.robotOverlay.alignmentRoot,start,end,yaw) : end
+      robotMotionPlaybackService.turnConstraint = (position,start,end) => this.robotOverlay ? constrainRobotTurn(this.robotOverlay.alignmentRoot,position,start,end) : end
       this.picker = new Picker(app, 1, 1, true)
       this.environmentOverlay = new EnvironmentOverlayRuntime(app)
       this.fireVolume = new FireVolumeRuntime(app, camera, this.depthCapture)
@@ -305,12 +318,14 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   setRobotModel(modelId: SimulationModelId): void {
+    this.stepDemo?.clear()
     this.robotOverlay?.setModel(modelId)
     this.updateControlsEnabled()
     this.requestRender()
   }
 
   updateRobotPose(pose: RobotPose, immediate = false): boolean {
+    if(this.stepDemo?.active) return false
     const accepted = this.robotOverlay?.updatePose(pose, immediate) ?? false
     if (accepted) {
       if (this.followRobot && this.cameraController) {
@@ -323,17 +338,20 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
   }
 
   clearRobotPose(): void {
+    if(this.stepDemo?.active) return
     this.robotOverlay?.clearPose()
     this.requestRender()
   }
 
   setRobotCalibration(calibration: RobotOverlayCalibration): boolean {
+    this.stepDemo?.clear()
     const accepted = this.robotOverlay?.setCalibration(calibration) ?? false
     if (accepted) this.requestRender()
     return accepted
   }
 
   resetRobotCalibration(): void {
+    this.stepDemo?.clear()
     this.robotOverlay?.resetCalibration()
     this.requestRender()
   }
@@ -442,6 +460,8 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   async unloadScene(): Promise<void> {
     if (this.disposed) return
+    this.stepDemo?.clear()
+    robotCollisionService.setScene(false)
     ++this.loadGeneration
     const hadScene = Boolean(this.sceneEntity || this.sceneAsset || this.pendingAsset || this.objectUrl)
     if (hadScene) {
@@ -548,6 +568,10 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
 
   dispose(): void {
     if (this.disposed) return
+    this.stepDemo?.dispose();this.stepDemo=null
+    robotMotionPlaybackService.movementConstraint = null
+    robotMotionPlaybackService.turnConstraint = null
+    robotCollisionService.setScene(false)
     this.disposed = true
     this.activeRendering = false
     ++this.loadGeneration
@@ -712,6 +736,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
           entity.addComponent('gsplat', { asset, layers: [this.gsLayer!.id] })
           app.root.addChild(entity)
           this.sceneEntity = entity
+          robotCollisionService.setScene(/office[_-]?01|scene_yup/i.test(source.displayName))
           this.sceneAsset = asset
           this.pendingAsset = null
           this.revokeObjectUrl(objectUrl)
@@ -883,6 +908,8 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     robotMotionPlaybackService.update(deltaSeconds)
     this.applyRobotCameraPose()
     this.fireVolume?.update(deltaSeconds)
+    if(this.sceneEntity)this.stepDemo?.draw(this.sceneEntity)
+    if(this.app && this.sceneEntity && this.robotOverlay) drawCollisionOverlay(this.app,this.sceneEntity,this.robotOverlay.alignmentRoot,this.robotOverlay.getCollisionPosition(),this.robotOverlay.getCollisionHeading())
   }
 
   private readonly handleContextLost = (): void => {

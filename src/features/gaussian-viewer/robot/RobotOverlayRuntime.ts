@@ -129,6 +129,12 @@ export class RobotOverlayRuntime {
   }
   reloadVisuals(): void { if (this.rig instanceof Go2MeshRig) this.rig.retry() }
   getBounds(): RobotBounds | null { return this.hasPose ? this.rig.getBounds() : null }
+  getCollisionPosition(): Vec3 | null { return this.hasPose ? this.alignmentRoot.getLocalTransform().transformPoint(this.rig.robotRoot.getLocalPosition()) : null }
+  getCollisionHeading(): number {
+    const forward=this.rig.robotRoot.getLocalRotation().transformVector(Vec3.RIGHT)
+    this.alignmentRoot.getLocalTransform().transformVector(forward,forward)
+    return Math.atan2(forward.z,forward.x)
+  }
   getRobotCameraPose(): RobotCameraPose | null {
     if (!this.hasPose || this.disposed) return null
     // Go2 front sensor is fixed to the torso. The local +X axis is robot-forward.

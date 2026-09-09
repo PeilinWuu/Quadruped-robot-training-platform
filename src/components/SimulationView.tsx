@@ -6,6 +6,9 @@ import { firePlaybackService } from '../services/fire-playback/firePlaybackServi
 import type { FirePlaybackState, FireQuality, FireVersion } from '../services/fire-playback/types'
 import { robotMotionPlaybackService } from '../services/robot-motion-playback/robotMotionPlaybackService'
 import type { RobotMotionState } from '../services/robot-motion-playback/types'
+import { robotCollisionService as collision } from '../services/robot-collision/robotCollisionService'
+import { StepDemoControls } from './StepDemoControls'
+import { stepDemoService } from '../services/step-demo/stepDemoService'
 
 const GaussianViewport = lazy(() => import('../features/gaussian-viewer/GaussianViewport'))
 
@@ -22,6 +25,10 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
   const [depthStatus, setDepthStatus] = useState(firePlaybackService.depthStatus)
   const [fireFps, setFireFps] = useState(0)
   const [motion, setMotion] = useState<RobotMotionState>(() => robotMotionPlaybackService.getState())
+  const [, refreshCollision] = useState(0)
+  const [stepActive,setStepActive]=useState(stepDemoService.enabled)
+  useEffect(()=>stepDemoService.subscribe(()=>setStepActive(stepDemoService.enabled)),[])
+  useEffect(() => collision.subscribe(() => refreshCollision(value => value + 1)), [])
 
   useEffect(() => firePlaybackService.subscribe(setFire), [])
   useEffect(() => {
@@ -69,7 +76,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
         ><Video size={15}/>{robotFirstPerson ? '退出第一人称' : '第一人称'}</button>
       </div>
 
-      <div className="play-controls" aria-label="Go2 motion playback controls">
+      <div className="play-controls" inert={stepActive} aria-label="Go2 motion playback controls">
         <span className={`simulation-process simulation-process--${motion.phase}`}>播片 · {motion.phase}</span>
         {motion.phase === 'idle' || motion.phase === 'error'
           ? <button type="button" onClick={loadMotion}>{motion.phase === 'error' ? '重试运动资产' : '加载运动'}</button>
@@ -84,6 +91,13 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
         <small>{motion.displayName ?? motion.error ?? 'Go2 程序化对角步态'} · {motion.frameCount ? `${motion.frameIndex + 1}/${motion.frameCount}` : '—'} · {motion.keyboardEnabled ? 'WASD/QE' : '键盘关闭'}</small>
       </div>
 
+      <div className="fire-playback-controls" role="toolbar" aria-label="机器人碰撞">
+        <strong>机器人碰撞</strong>
+        <label><input type="checkbox" checked={collision.enabled} onChange={e=>collision.setEnabled(e.target.checked)}/>空气墙</label>
+        <label><input type="checkbox" checked={collision.debug} onChange={e=>collision.setDebug(e.target.checked)}/>显示碰撞范围</label>
+        <small>{!collision.sceneAvailable ? '加载 office_01 场景后生效' : !collision.enabled ? '碰撞关闭' : collision.blocked ? `受到阻挡：${collision.blocked}` : '墙体 / 沙发 / 部分桌子 · 展示碰撞'}</small>
+      </div>
+      <StepDemoControls />
       <div className="fire-playback-controls" role="toolbar" aria-label="火焰播放">
         <strong className="fire-playback-title"><Flame size={15}/>火焰播放</strong>
         <button type="button" disabled={roomBusy} onClick={() => void toggleRoomFire()}>{roomBusy ? '正在加载多点火场…' : fire.sceneMode === 'room' ? '切回单桌火焰' : '启动多点火场'}</button>

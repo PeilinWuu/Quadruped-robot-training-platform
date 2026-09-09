@@ -162,3 +162,6 @@
 .thermal-legend { margin:2px 6px; padding:1px 3px; display:flex; justify-content:space-between; font-size:9px; color:white; text-shadow:0 1px 2px black; background:linear-gradient(90deg,#050412,#2d0c58,#8e1754,#e0411f,#ffac2b,#ffffdc); }
 .thermal-legend.white { background:linear-gradient(90deg,black,white); }
 .thermal-legend.black { background:linear-gradient(90deg,white,black); }
+
+.step-demo-controls input[type=number] { width:65px; background:#0a1c27; color:#b8d0dc; border:1px solid #28566d; margin:0 3px; }
+.sim-toolbar>.step-demo-controls { background:#112329; border-color:#28566d; }

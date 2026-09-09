@@ -6,6 +6,17 @@ import { RobotMotionPlaybackService } from './robotMotionPlaybackService'
 afterEach(() => vi.restoreAllMocks())
 
 describe('RobotMotionPlaybackService animation-driven control', () => {
+  it('applies movement constraints before emitting position and stops the gait when blocked',async()=> {
+    const service=new RobotMotionPlaybackService();await service.load()
+    let pose:RobotPose|null=null;service.onPose(p=>pose=p)
+    service.movementConstraint=(start)=>start
+    service.play();service.setControlInput(1,0);service.update(.1)
+    expect(pose!.rootPosition[0]).toBe(0)
+    expect(service.getState().frameIndex).toBe(0)
+    expect(pose!.joints[1].position).toBe(.72)
+    service.movementConstraint=null;service.update(.1)
+    expect(pose!.rootPosition[0]).toBeCloseTo(.03)
+  })
   it('uses WASD for root motion while joint animation remains clip-driven', async () => {
     const service = new RobotMotionPlaybackService()
     await service.load()
