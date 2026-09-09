@@ -6,6 +6,8 @@
 
 [快速开始](docs/GETTING_STARTED.md) · [数据准备](docs/DATA_ASSETS.md) · [开发贡献](CONTRIBUTING.md) · [架构](docs/ARCHITECTURE.md) · [全部文档](docs/README.md)
 
+**受邀共同开发者请先看 [完整展示上手入口](docs/COLLABORATOR_QUICKSTART.md)**：向维护者取得一个共享资产包，执行 `npm run assets:setup -- <资产包路径>`，即可校验并配置全部展示数据。
+
 ## 快速启动桌面应用
 
 Windows x64，安装 Node.js 24、Rust MSVC 工具链、Visual Studio 2022 C++ Build Tools 和 WebView2 后，在 PowerShell 执行：

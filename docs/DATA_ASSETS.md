@@ -2,6 +2,8 @@
 
 [返回首页](../README.md) · [文档索引](README.md)
 
+受邀协作者无需逐目录收集文件：向维护者取得共享资产包，按 [共同开发者入口](COLLABORATOR_QUICKSTART.md) 运行 `assets:setup`。下面保留目录与手动配置说明。
+
 ## 拉取后有什么
 
 | 资源 | 是否在 Git 中 | 用法 |
