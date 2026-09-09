@@ -7,6 +7,7 @@ export const FIRE_VOLUME_V2_FRAGMENT = `
   uniform vec3 view_position;
   uniform vec3 uViewerLower;
   uniform vec3 uViewerUpper;
+  uniform vec3 uDisplayOffset;
   uniform vec3 uSourceLower;
   uniform vec3 uSourceExtent;
   uniform sampler2D uVolume0;
@@ -56,6 +57,7 @@ export const FIRE_VOLUME_V2_FRAGMENT = `
   }
 
   vec3 sourceUv(vec3 viewerPosition) {
+    viewerPosition -= uDisplayOffset;
     vec3 sourcePosition = vec3(viewerPosition.x, -viewerPosition.z, viewerPosition.y);
     return (sourcePosition - uSourceLower) / uSourceExtent;
   }

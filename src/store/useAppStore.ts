@@ -117,7 +117,7 @@ export const useAppStore = create<AppState>((set, get) => {
   }
 
   return {
-    scenes: [], activeSceneId: '', status: 'running', speed: 1, activeSensor: 'rgb', elapsed: 765,
+    scenes: [], activeSceneId: '', status: 'running', speed: 1, activeSensor: 'all', elapsed: 765,
     robot: null, sensor: null, task: null, metrics: [], simulation: INITIAL_SIMULATION,
     initialize: async () => {
       const [sceneResult, robotResult, sensorResult, taskResult, metricsResult] = await Promise.all([

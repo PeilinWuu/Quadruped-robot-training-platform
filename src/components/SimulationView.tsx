@@ -16,6 +16,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
   const [fire, setFire] = useState<FirePlaybackState>(() => firePlaybackService.getState())
   const [fireVersion, setFireVersion] = useState<FireVersion>('playback-v1')
   const [fireQuality, setFireQuality] = useState<FireQuality>('medium')
+  const [curtainSurface, setCurtainSurface] = useState(firePlaybackService.curtainSurfaceOffset > 0)
   const [atmosphere, setAtmosphere] = useState(firePlaybackService.atmosphereEnabled)
   const [roomBusy, setRoomBusy] = useState(false)
   const [depthStatus, setDepthStatus] = useState(firePlaybackService.depthStatus)
@@ -101,6 +102,7 @@ export function SimulationView({ notify }: { notify: (text: string) => void }) {
           : <button type="button" aria-label={fire.playing ? '暂停火焰' : '播放火焰'} disabled={fire.phase === 'loading'} onClick={() => fire.playing ? firePlaybackService.pause() : firePlaybackService.play()}>{fire.playing ? '暂停火焰' : '播放火焰'}</button>}
         <button type="button" disabled={fire.frameCount === 0} onClick={() => firePlaybackService.reset()}>重置火焰</button>
         {fire.sceneMode === 'room' && <label><input type="checkbox" checked={atmosphere} onChange={(event) => { setAtmosphere(event.target.checked); firePlaybackService.atmosphereEnabled = event.target.checked }}/>火场氛围</label>}
+        {fire.sceneMode === 'room' && <label title="窗帘火焰向室内偏移 10 厘米，保留 GS 遮挡"><input type="checkbox" checked={curtainSurface} onChange={e => { setCurtainSurface(e.target.checked); firePlaybackService.curtainSurfaceOffset = e.target.checked ? .1 : 0 }}/>窗帘表面修正</label>}
         {fire.sceneMode === 'room' && <span className="fire-scene-views">
           <button type="button" onClick={() => lookAtFire('table_high')}>看桌子</button>
           <button type="button" onClick={() => lookAtFire('sofa_high')}>看沙发</button>

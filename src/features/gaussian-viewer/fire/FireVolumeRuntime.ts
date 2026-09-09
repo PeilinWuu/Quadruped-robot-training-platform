@@ -45,6 +45,7 @@ const FRAGMENT_SHADER = `
   uniform vec3 view_position;
   uniform vec3 uViewerLower;
   uniform vec3 uViewerUpper;
+  uniform vec3 uDisplayOffset;
   uniform vec3 uSourceLower;
   uniform vec3 uSourceExtent;
   uniform sampler2D uVolume0;
@@ -91,6 +92,7 @@ const FRAGMENT_SHADER = `
   }
 
   vec3 sourceUv(vec3 viewerPosition) {
+    viewerPosition -= uDisplayOffset;
     vec3 sourcePosition = vec3(viewerPosition.x, -viewerPosition.z, viewerPosition.y);
     return (sourcePosition - uSourceLower) / uSourceExtent;
   }
@@ -225,6 +227,8 @@ export class FireVolumeRuntime {
   private contextLost = false
   private texture0: Texture | null = null
   private texture1: Texture | null = null
+  private viewerLower = new Vec3()
+  private viewerUpper = new Vec3()
   private metadata: FirePlaybackMetadata | null = null
   private currentIndex = -1
   private nextIndex = -1
@@ -291,6 +295,16 @@ export class FireVolumeRuntime {
       } else { this.atmosphere?.dispose(); this.atmosphere = null }
     }
     const service = this.service
+    if (this.metadata) {
+      // office_01 curtain 62 faces the room along viewer +Z. Display-only shift.
+      const offset = this.metadata.scenarioId === 'curtain_high' ? Math.max(0, Math.min(.2, service.curtainSurfaceOffset)) : 0
+      const lower = this.viewerLower.clone(); lower.z += offset
+      const upper = this.viewerUpper.clone(); upper.z += offset
+      this.entity.setLocalPosition(lower.clone().add(upper).mulScalar(.5))
+      this.material.setParameter('uDisplayOffset', [0, 0, offset])
+      this.material.setParameter('uViewerLower', lower.toArray())
+      this.material.setParameter('uViewerUpper', upper.toArray())
+    }
     if (this.metadata?.schema.endsWith('v2') && Array.from(this.material.variants.values()).some((shader) => shader.failed)) {
       void service.fallback('FIRE_V2_SHADER_FAILED')
     }
@@ -412,6 +426,8 @@ export class FireVolumeRuntime {
     const sourceUpper = new Vec3(...metadata.grid.worldUpper)
     const viewerLower = new Vec3(sourceLower.x, sourceLower.z, -sourceUpper.y)
     const viewerUpper = new Vec3(sourceUpper.x, sourceUpper.z, -sourceLower.y)
+    this.viewerLower.copy(viewerLower); this.viewerUpper.copy(viewerUpper)
+    this.material.setParameter('uDisplayOffset', [0, 0, 0])
     const center = viewerLower.clone().add(viewerUpper).mulScalar(.5)
     const extent = viewerUpper.clone().sub(viewerLower)
     this.entity.setLocalPosition(center)

@@ -61,6 +61,7 @@ export class FirePlaybackService {
     this.setState(this.state)
   }
 
+  curtainSurfaceOffset = .1
   atmosphereEnabled = true
   presentationSeconds = 0
   quality: FireQuality = 'medium'
@@ -92,10 +93,13 @@ export class FirePlaybackService {
 
   getState(): FirePlaybackState { return { ...this.state, sceneMode: this.sceneMode, additionalFires: [...this.companions].map(([id, service]) => ({ id, phase: service.state.phase, error: service.state.error })) } }
   getMetadata(): FirePlaybackMetadata | null { return this.metadata }
+  getLatestSample(): FirePlaybackSample | null { return this.latestSample }
+  assetBaseUrl = ''
   subscribe(listener: Listener): () => void { this.listeners.add(listener); listener(this.getState()); return () => this.listeners.delete(listener) }
   onSample(listener: SampleListener): () => void { this.sampleListeners.add(listener); if (this.latestSample && this.metadata) listener(this.latestSample, this.metadata); return () => this.sampleListeners.delete(listener) }
 
   async load(baseUrl: string, fallbackUrl?: string, preserveReason = false): Promise<void> {
+    this.assetBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
     const generation = ++this.generation
     ++this.requestId
     this.samplePromise = null
@@ -137,6 +141,7 @@ export class FirePlaybackService {
 
   update(deltaSeconds: number): void {
     for (const service of this.companions.values()) {
+      service.curtainSurfaceOffset = this.curtainSurfaceOffset
       service.depthOcclusion = this.depthOcclusion
       service.quality = this.quality; service.autoQuality = false
       service.update(deltaSeconds)
@@ -192,7 +197,6 @@ export class FirePlaybackService {
     const currentIndex = this.currentIndex
     const nextIndex = this.nextIndex()
     const requestId = ++this.requestId
-    this.latestSample = null
     adapter.retainPair(metadata, [currentIndex, nextIndex])
     this.samplePromise = Promise.all([
       adapter.loadFrame(metadata, currentIndex),

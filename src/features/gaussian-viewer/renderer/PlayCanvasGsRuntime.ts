@@ -1,5 +1,6 @@
 import { GaussianDepthCapture } from '../depth/GaussianDepthCapture'
 import { gsDepthPreview } from '../depth/gsDepthPreview'
+import { thermalPreview } from '../thermal/thermalPreview'
 import {
   Application,
   Asset,
@@ -854,7 +855,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     const state = firePlaybackService.getState()
     const fireVisible = firePlaybackService.quality !== 'off' && ['ready', 'playing', 'paused'].includes(state.phase)
     const needsGpu = fireVisible && (firePlaybackService.depthOcclusion || (state.sceneMode === 'room' && firePlaybackService.atmosphereEnabled))
-    this.depthCapture?.renderGpu(this.status.sceneLoaded === true && (needsGpu || gsDepthPreview.enabled), needsGpu)
+    this.depthCapture?.renderGpu(this.status.sceneLoaded === true && (needsGpu || gsDepthPreview.enabled || thermalPreview.enabled), needsGpu)
     this.fireVolume?.syncDepth()
   }
 
@@ -862,6 +863,7 @@ export class PlayCanvasGsRuntime implements ViewerRuntime {
     if (!this.app || this.disposed) return
     if (this.activeRendering && this.status.sceneLoaded && !this.status.contextLost) {
       gsDepthPreview.cameraMode = this.robotFirstPerson ? '机器人第一视角' : '当前自由视角'
+      thermalPreview.cameraMode = gsDepthPreview.cameraMode
       this.depthCapture?.update()
       this.status.depthAvailable = !!this.depthCapture?.frame
     }

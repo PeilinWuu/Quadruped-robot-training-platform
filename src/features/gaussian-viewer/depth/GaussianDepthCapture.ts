@@ -2,6 +2,7 @@ import { Application, Entity, Layer, Picker } from 'playcanvas'
 import type { RenderTarget, Texture, MeshInstance } from 'playcanvas'
 import { decodeGsDepth, gsDepthPreview } from './gsDepthPreview'
 import type { GaussianDepthFrame } from '../types'
+import { thermalPreview } from '../thermal/thermalPreview'
 
 // Full-frame readback adapter for pinned PlayCanvas 2.21.1 Picker internals.
 // Public Picker only exposes single-pixel depth. Keep this dependency isolated.
@@ -58,10 +59,11 @@ export class GaussianDepthCapture {
     } catch (error) {
       this.failed = true
       gsDepthPreview.publish(null, error instanceof Error ? error.message : 'GS_DEPTH_FAILED')
+      if (thermalPreview.enabled) { thermalPreview.clear(); thermalPreview.publish(null, 'GS 深度不可用，热像已暂停') }
     }
   }
   update(): void {
-    if (this.busy || this.disposed || !this.active || !gsDepthPreview.enabled || performance.now() - this.lastCapture < 200) return
+    if (this.busy || this.disposed || !this.active || !(gsDepthPreview.enabled || thermalPreview.enabled) || performance.now() - this.lastCapture < 200) return
     this.lastCapture = performance.now()
     void this.capture()
   }
@@ -73,9 +75,12 @@ export class GaussianDepthCapture {
     const width = buffers.depthBuffer.width, height = buffers.depthBuffer.height
     const near = camera.nearClip, far = camera.farClip
     const timestampMs = performance.now()
+    const cameraWorld = Array.from(this.camera.getWorldTransform().data)
+    const projection = Array.from(camera.projectionMatrix.data)
+    const thermalSnapshot = thermalPreview.snapshot()
     try {
       const bytes = await buffers.depthBuffer.read(0, 0, width, height, { renderTarget: buffers.renderTargetDepth, immediate: true })
-      if (this.disposed || generation !== this.generation || !gsDepthPreview.enabled) return
+      if (this.disposed || generation !== this.generation || !(gsDepthPreview.enabled || thermalPreview.enabled)) return
       const values = decodeGsDepth(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), width, height, near, far)
       const previewWidth = Math.min(640, width)
       const previewHeight = Math.max(1, Math.round(previewWidth * height / width))
@@ -84,14 +89,23 @@ export class GaussianDepthCapture {
         preview[y * previewWidth + x] = values[Math.min(height - 1, Math.floor((y + .5) * height / previewHeight)) * width + Math.min(width - 1, Math.floor((x + .5) * width / previewWidth))]
       }
       this.frame = { width: previewWidth, height: previewHeight, values: preview, sequence: ++this.sequence, timestampMs }
-      gsDepthPreview.publish(this.frame)
+      if (gsDepthPreview.enabled) gsDepthPreview.publish(this.frame)
+      if (thermalSnapshot) {
+        const w = Math.min(192, previewWidth), h = Math.max(1, Math.round(w * previewHeight / previewWidth))
+        const depth = new Float32Array(w * h)
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          depth[y*w+x] = preview[Math.min(previewHeight-1,Math.floor((y+.5)*previewHeight/h))*previewWidth+Math.min(previewWidth-1,Math.floor((x+.5)*previewWidth/w))]
+        }
+        void thermalPreview.render({width:w,height:h,depth,cameraWorld,projection,sequence:this.sequence,timestampMs},thermalSnapshot)
+      }
     } catch (error) {
       if (!this.disposed && generation === this.generation) gsDepthPreview.publish(null, error instanceof Error ? error.message : 'GS_DEPTH_FAILED')
+      if (!this.disposed && generation === this.generation && thermalPreview.enabled) { thermalPreview.clear(); thermalPreview.publish(null, 'GS 深度读取失败，热像已暂停') }
     } finally {
       this.busy = false
       if (this.disposed) this.picker.destroy()
     }
   }
-  clear(): void { this.active = false; this.generation++; this.frame = null; gsDepthPreview.publish(null) }
+  clear(): void { this.active = false; this.generation++; this.frame = null; gsDepthPreview.publish(null); thermalPreview.clear() }
   dispose(): void { this.disposed = true; this.clear(); if (!this.busy) this.picker.destroy() }
 }

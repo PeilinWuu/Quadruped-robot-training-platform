@@ -27,7 +27,7 @@ function developmentFirePlaybackAssets(prefix = '/fire-playback', root = FIRE_PL
     configureServer(server) {
       server.middlewares.use(prefix, (request, response, next) => {
         const pathname = decodeURIComponent((request.url ?? '/').split('?')[0]).replace(/^\/+/, '')
-        if (!/^[a-z0-9_-]+\/(?:metadata\.json|frames_[0-9]{3}\.bin|proxy(?:-smooth)?\.bin)$/.test(pathname)) {
+        if (!/^[a-z0-9_-]+\/(?:metadata\.json|thermal\.json|thermal_[0-9]{3}\.bin|frames_[0-9]{3}\.bin|proxy(?:-smooth)?\.bin)$/.test(pathname)) {
           next(); return
         }
         const path = resolve(root, pathname)
@@ -109,8 +109,16 @@ function productionPublicAssets(): Plugin {
           const input = resolve('D:/interiorgs_data/office_01', route.replaceAll('-', '_'), scenario)
           const target = resolve(output, route, scenario)
           await mkdir(target, { recursive: true })
+          if (route !== 'fire-playback-v2') {
+            const thermal = JSON.parse(await readFile(resolve(input, 'thermal.json'), 'utf8')) as { frames: Array<{ file: string; sha256: string }> }
+            for (const frame of thermal.frames) {
+              if (!/^thermal_[0-9]{3}\.bin$/.test(frame.file)) throw new Error('Unsafe thermal asset name')
+              const bytes = await readFile(resolve(input, frame.file))
+              if (createHash('sha256').update(bytes).digest('hex') !== frame.sha256) throw new Error('Thermal asset hash mismatch')
+            }
+          }
           for (const name of await readdir(input)) {
-            if (!/^(metadata\.json|frames_[0-9]{3}\.bin|proxy(?:-smooth)?\.bin)$/.test(name)) continue
+            if (!/^(metadata\.json|thermal\.json|thermal_[0-9]{3}\.bin|frames_[0-9]{3}\.bin|proxy(?:-smooth)?\.bin)$/.test(name)) continue
             const info = await lstat(resolve(input, name))
             if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe fire production asset')
             await copyFile(resolve(input, name), resolve(target, name))

@@ -21,7 +21,7 @@
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "npm run test:node && npm run test:frontend",
     "test:node": "node --import tsx --test server/*.test.ts scripts/*.test.mjs",
-    "test:frontend": "vitest run src/features/gaussian-viewer/depth src/services/fire-playback src/services/scenes src/services/simulation src/services/robot-motion-playback src/features/gaussian-viewer/robot src/features/gaussian-viewer/environment src/store src/components",
+    "test:frontend": "vitest run src/features/gaussian-viewer/depth src/features/gaussian-viewer/thermal src/services/fire-playback src/services/scenes src/services/simulation src/services/robot-motion-playback src/features/gaussian-viewer/robot src/features/gaussian-viewer/environment src/store src/components",
     "preview": "vite preview",
     "tauri": "tauri"
   },
