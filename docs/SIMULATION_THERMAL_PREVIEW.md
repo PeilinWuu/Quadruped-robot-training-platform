@@ -11,7 +11,7 @@
 5. 检查铁红、白热、黑热色带和固定 0–1 色标。鼠标显示相对热度，不显示 °C。
 6. 切换第一视角、调整窗口大小、多视图与单热像视图；卸载 GS 场景后不应保留旧热像。
 
-开发启动：`npm run tauri -- dev`。如已有 5173 开发服务，使用已有配置：`npm run tauri -- dev --no-watch --config tmp/tauri-desktop-test.json`。
+开发启动：`npm run tauri -- dev`。数据路径配置见 [数据与资源](DATA_ASSETS.md)；已有 5173 服务时见 [故障排查](TROUBLESHOOTING.md)。本机临时配置不会随 Git 拉取。
 
 ## 数据和渲染
 

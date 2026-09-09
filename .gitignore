@@ -45,3 +45,9 @@ Thumbs.db
 !/public/gs/local/.gitkeep
 /public/robot-visuals/unitree-go2/generated/
 /.cache/go2-visuals/
+
+# Local experiments, independent solver checkout and Python bytecode
+/tmp/
+/FieryGS/
+__pycache__/
+*.py[cod]

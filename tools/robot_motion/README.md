@@ -8,6 +8,9 @@ The initial asset is Kine2Go `solo8_walk`, whose upstream subset is licensed
 under BSD-3-Clause. Preserve the adjacent source metadata and license when
 redistributing the generated asset.
 
-At runtime the clip supplies joint animation only. WASD controls the viewer
-root transform and each frame is vertically grounded from the rendered Go2
-foot geometry. No MPC, inverse kinematics, collision, or dynamics solver runs.
+The converted clip remains a versioned asset, but the current viewer defaults
+to a procedural gait in `robotMotionPlaybackService`. WASD/QE controls its root
+transform. The office_01 demo now includes rectangular air-wall constraints,
+a ground height lookup and a separate static step IK example. None of these
+is a MuJoCo dynamics simulation. See [architecture](../../docs/ARCHITECTURE.md)
+and [step demo](../../docs/LOCAL_STEP_STANDING_DEMO.md).

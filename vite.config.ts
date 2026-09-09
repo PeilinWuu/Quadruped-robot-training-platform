@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { copyFile, lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { extname, resolve } from 'node:path'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const PRODUCTION_PUBLIC_ASSETS = ['favicon.svg', 'icons.svg'] as const
@@ -18,9 +18,7 @@ const PRODUCTION_GROUND_COLLISION_ASSETS = [
   'ground-collision/office_01/valid_mask.bin',
 ] as const
 const GO2_LOCK_PATH = 'src/features/gaussian-viewer/robot/go2Visuals.lock.json'
-const FIRE_PLAYBACK_ROOT = 'D:/interiorgs_data/office_01/fire_playback'
-
-function developmentFirePlaybackAssets(prefix = '/fire-playback', root = FIRE_PLAYBACK_ROOT): Plugin {
+function developmentFirePlaybackAssets(prefix: string, root: string): Plugin {
   return {
     name: `development-fire-playback-assets-${prefix}`,
     apply: 'serve',
@@ -48,7 +46,7 @@ function developmentFirePlaybackAssets(prefix = '/fire-playback', root = FIRE_PL
   }
 }
 
-function productionPublicAssets(): Plugin {
+function productionPublicAssets(sceneDataRoot: string, bundleFirePlayback: boolean): Plugin {
   let root = ''
   let output = ''
   return {
@@ -98,7 +96,7 @@ function productionPublicAssets(): Plugin {
         throw new Error('Production build contains forbidden SOG assets')
       }
       // Tauri builds embed these playback assets so installed apps work offline.
-      if (process.env.TAURI_ENV_PLATFORM) {
+      if (process.env.TAURI_ENV_PLATFORM && bundleFirePlayback) {
         const scenarios = [
           ['fire-playback', 'table_high'],
           ['fire-playback-room', 'sofa_high'],
@@ -106,7 +104,7 @@ function productionPublicAssets(): Plugin {
           ['fire-playback-v2', 'table_high_test'],
         ] as const
         for (const [route, scenario] of scenarios) {
-          const input = resolve('D:/interiorgs_data/office_01', route.replaceAll('-', '_'), scenario)
+          const input = resolve(sceneDataRoot, route.replaceAll('-', '_'), scenario)
           const target = resolve(output, route, scenario)
           await mkdir(target, { recursive: true })
           if (route !== 'fire-playback-v2') {
@@ -139,18 +137,29 @@ async function findSogFiles(directory: string): Promise<string[]> {
   return matches
 }
 
-// Development serves generated Go2 GLBs and the local SOG fixture. Production copies only locked GLBs.
-export default defineConfig(({ command }) => ({
-  publicDir: command === 'serve' ? 'public' : false,
-  plugins: [react(), developmentFirePlaybackAssets(), developmentFirePlaybackAssets('/fire-playback-v2', 'D:/interiorgs_data/office_01/fire_playback_v2'), developmentFirePlaybackAssets('/fire-playback-room', 'D:/interiorgs_data/office_01/fire_playback_room'), productionPublicAssets()],
-  server: {
-    port: 5173,
-    strictPort: true,
-    proxy: {
-      '/api': 'http://localhost:3001',
+// Production uses an asset allowlist; SOG scenes are always imported separately.
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const sceneDataRoot = env.GS_SCENE_DATA_ROOT || 'D:/interiorgs_data/office_01'
+  const bundleFirePlayback = env.BUNDLE_FIRE_PLAYBACK !== '0'
+  return {
+    publicDir: command === 'serve' ? 'public' : false,
+    plugins: [
+      react(),
+      developmentFirePlaybackAssets('/fire-playback', resolve(sceneDataRoot, 'fire_playback')),
+      developmentFirePlaybackAssets('/fire-playback-v2', resolve(sceneDataRoot, 'fire_playback_v2')),
+      developmentFirePlaybackAssets('/fire-playback-room', resolve(sceneDataRoot, 'fire_playback_room')),
+      productionPublicAssets(sceneDataRoot, bundleFirePlayback),
+    ],
+    server: {
+      port: 5173,
+      strictPort: true,
+      proxy: {
+        '/api': 'http://localhost:3001',
+      },
+      watch: {
+        ignored: ['**/src-tauri/**'],
+      },
     },
-    watch: {
-      ignored: ['**/src-tauri/**'],
-    },
-  },
-}))
+  }
+})
